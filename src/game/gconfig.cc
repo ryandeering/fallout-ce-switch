@@ -43,8 +43,6 @@ static char gconfig_file_name[COMPAT_MAX_PATH];
 // 0x43D690
 bool gconfig_init(bool isMapper, int argc, char** argv)
 {
-    char* sep;
-
     if (gconfig_initialized) {
         return false;
     }
