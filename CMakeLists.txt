@@ -4,14 +4,10 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(EXECUTABLE_NAME fallout-ce)
 
-if (APPLE)
-    if(IOS)
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "11" CACHE STRING "")
-        set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "")
-    else()
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.11" CACHE STRING "")
-        set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "")
-    endif()
+if(NOT DEFINED ENV{F1_VERSION})
+  set(F1_VERSION "0.0.0")
+else()
+  set(F1_VERSION $ENV{F1_VERSION})
 endif()
 
 project(${EXECUTABLE_NAME})
@@ -20,27 +16,38 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS NO)
 
-option(ASAN "Enable address sanitizer" OFF)
-option(UBSAN "Enable undefined behaviour sanitizer" OFF)
+set(SDL2_INCLUDE_DIR "/opt/devkitpro/portlibs/switch/include/SDL2")
+set(SDL2_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libSDL2.a")
+set(SDL2_TTF_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libSDL2_ttf.a")
+set(SDL2_MIXER_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libSDL2_mixer.a")
+set(SDL2_IMAGE_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libSDL2_image.a")
 
-if (ANDROID)
-    add_library(${EXECUTABLE_NAME} SHARED)
-else()
-    add_executable(${EXECUTABLE_NAME} WIN32 MACOSX_BUNDLE)
-endif()
+set(ZLIB_INCLUDE_DIR "/opt/devkitpro/portlibs/switch/include")
+set(ZLIB_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libz.a")
 
-if(ASAN)
-    target_compile_options(${EXECUTABLE_NAME} PUBLIC "-fsanitize=address;-fsanitize-recover=address")
-    target_link_options(${EXECUTABLE_NAME} PUBLIC "-fsanitize=address;-fsanitize-recover=address")
-endif()
-if(UBSAN)
-    target_compile_options(${EXECUTABLE_NAME} PUBLIC "-fsanitize=undefined")
-    target_link_options(${EXECUTABLE_NAME} PUBLIC "-fsanitize=undefined")
-endif()
+set(EGL_INCLUDE_DIR "/opt/devkitpro/portlibs/switch/include/EGL")
+set(EGL_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libEGL.a")
 
-target_include_directories(${EXECUTABLE_NAME} PUBLIC src)
+set(NOUVEAU_INCLUDE_DIR "/opt/devkitpro/portlibs/switch/include/nouveau")
+set(NOUVEAU_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libdrm_nouveau.a")
 
-target_sources(${EXECUTABLE_NAME} PUBLIC
+set(GLAPI_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libglapi.a")
+set(GLES_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libGLESv2.a")
+
+set(NX_LIBS "/opt/devkitpro/libnx/lib/libnx.a")
+
+set(FREETYPE_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libfreetype.a")
+set(HARFBUZZ_LIBRARY "/opt/devkitpro/portlibs/switch/lib/libharfbuzz.a")
+
+include_directories(${SDL2_INCLUDE_DIR} ${ZLIB_INCLUDE_DIR} ${EGL_INCLUDE_DIR} ${NOUVEAU_INCLUDE_DIR} /opt/devkitpro/libnx/include)
+link_directories(/opt/devkitpro/portlibs/switch/lib /opt/devkitpro/libnx/lib)
+
+include_directories(${CMAKE_SOURCE_DIR}/third_party/fpattern)
+
+add_definitions(-D__SWITCH__)
+
+if(NX)
+    add_executable(${EXECUTABLE_NAME}
     "src/game/actions.cc"
     "src/game/actions.h"
     "src/game/amutex.cc"
@@ -259,9 +266,6 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/movie_lib.h"
     "src/sound_decoder.cc"
     "src/sound_decoder.h"
-)
-
-target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/audio_engine.cc"
     "src/audio_engine.h"
     "src/fps_limiter.cc"
@@ -272,109 +276,53 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/pointer_registry.h"
     "src/plib/gnw/touch.cc"
     "src/plib/gnw/touch.h"
-)
-
-if(IOS)
-    target_sources(${EXECUTABLE_NAME} PUBLIC
-        "src/platform/ios/paths.h"
-        "src/platform/ios/paths.mm"
+    "third_party/fpattern/fpattern.c"
+    "third_party/fpattern/fpattern.h"
+    "src/logger.cc"
+    "src/logger.h"
     )
-endif()
-
-if(WIN32)
-    target_compile_definitions(${EXECUTABLE_NAME} PUBLIC
-        _CRT_SECURE_NO_WARNINGS
-        _CRT_NONSTDC_NO_WARNINGS
-        NOMINMAX
-        WIN32_LEAN_AND_MEAN
-    )
-endif()
-
-if(WIN32)
-    target_link_libraries(${EXECUTABLE_NAME}
-        winmm
-    )
-endif()
-
-if (WIN32)
-    target_sources(${EXECUTABLE_NAME} PUBLIC
-        "os/windows/fallout-ce.ico"
-        "os/windows/fallout-ce.rc"
-    )
-endif()
-
-if(APPLE)
-    if(IOS)
-        set(RESOURCES
-            "os/ios/AppIcon.xcassets"
-            "os/ios/LaunchScreen.storyboard"
-        )
-
-        target_sources(${EXECUTABLE_NAME} PUBLIC ${RESOURCES})
-        set_source_files_properties(${RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-
-        set_target_properties(${EXECUTABLE_NAME} PROPERTIES
-            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/os/ios/Info.plist"
-            XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
-            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.alexbatalov.fallout-ce"
-            XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
-        )
-
-        set(MACOSX_BUNDLE_BUNDLE_NAME "${EXECUTABLE_NAME}")
-        set(MACOSX_BUNDLE_DISPLAY_NAME "Fallout")
-    else()
-        set(RESOURCES
-            "os/macos/fallout-ce.icns"
-        )
-
-        target_sources(${EXECUTABLE_NAME} PUBLIC ${RESOURCES})
-        set_source_files_properties(${RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-
-        set_target_properties(${EXECUTABLE_NAME} PROPERTIES
-            OUTPUT_NAME "Fallout Community Edition"
-            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/os/macos/Info.plist"
-            XCODE_ATTRIBUTE_EXECUTABLE_NAME "${EXECUTABLE_NAME}"
-            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.alexbatalov.fallout-ce"
-        )
-
-        set(MACOSX_BUNDLE_ICON_FILE "fallout-ce.icns")
-        set(MACOSX_BUNDLE_BUNDLE_NAME "Fallout: Community Edition")
-        set(MACOSX_BUNDLE_DISPLAY_NAME "Fallout")
-    endif()
-
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.alexbatalov.fallout-ce")
-    set(MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0")
-    set(MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0")
-endif()
-
-if((NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD"))
-    add_subdirectory("third_party/sdl2")
 else()
-    find_package(SDL2)
+    message(FATAL_ERROR "This CMakeLists.txt is configured to build for Switch only.")
 endif()
 
-add_subdirectory("third_party/fpattern")
-target_link_libraries(${EXECUTABLE_NAME} ${FPATTERN_LIBRARY})
-target_include_directories(${EXECUTABLE_NAME} PRIVATE ${FPATTERN_INCLUDE_DIR})
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-target_link_libraries(${EXECUTABLE_NAME} ${SDL2_LIBRARIES})
-target_include_directories(${EXECUTABLE_NAME} PRIVATE ${SDL2_INCLUDE_DIRS})
+if(NX)
+    set(CMAKE_PREFIX_PATH "/opt/devkitpro/portlibs/switch")
 
-if(APPLE)
-    if(IOS)
-        install(TARGETS ${EXECUTABLE_NAME} DESTINATION "Payload")
+    include_directories("${CMAKE_SOURCE_DIR}/src")
+    include_directories(/opt/devkitpro/portlibs/switch/include)
+    link_directories(/opt/devkitpro/portlibs/switch/lib /opt/devkitpro/libnx/lib)
 
-        set(CPACK_GENERATOR "ZIP")
-        set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-        set(CPACK_PACKAGE_FILE_NAME "fallout-ce")
-        set(CPACK_ARCHIVE_FILE_EXTENSION "ipa")
-    else()
-        install(TARGETS ${EXECUTABLE_NAME} DESTINATION .)
+    find_package(SDL2 REQUIRED)
+    find_package(ZLIB REQUIRED)
 
-        set(CPACK_GENERATOR "DragNDrop")
-        set(CPACK_DMG_DISABLE_APPLICATIONS_SYMLINK ON)
-        set(CPACK_PACKAGE_FILE_NAME "Fallout Community Edition")
-    endif()
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -specs=/opt/devkitpro/libnx/switch.specs")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -specs=/opt/devkitpro/libnx/switch.specs")
 
-    include(CPack)
+    target_link_libraries(${EXECUTABLE_NAME}
+        ${SDL2_LIBRARY}
+        ${SDL2_TTF_LIBRARY}
+        ${SDL2_MIXER_LIBRARY}
+        ${SDL2_IMAGE_LIBRARY}
+        ${ZLIB_LIBRARY}
+        ${EGL_LIBRARY}
+        ${NOUVEAU_LIBRARY}
+        ${GLAPI_LIBRARY}
+        ${GLES_LIBRARY}
+        ${NX_LIBS}
+        ${FREETYPE_LIBRARY}
+        ${HARFBUZZ_LIBRARY}
+        png
+        bz2
+        z
+        m
+    )
+
+    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+        COMMAND /opt/devkitpro/tools/bin/nacptool --create "fallout-ce" "Interplay / alexbatalov / ryandeering" "${F1_VERSION}" ${CMAKE_BINARY_DIR}/fallout-ce.nacp
+        COMMAND /opt/devkitpro/tools/bin/elf2nso ${EXECUTABLE_NAME} ${EXECUTABLE_NAME}.nso
+        COMMAND /opt/devkitpro/tools/bin/elf2nro ${EXECUTABLE_NAME} ${EXECUTABLE_NAME}.nro --nacp=${CMAKE_BINARY_DIR}/fallout-ce.nacp
+    )
+
 endif()

@@ -16,6 +16,13 @@
 #include "platform/ios/paths.h"
 #endif
 
+#ifdef __SWITCH__
+#include <switch.h>
+#include "logger.h"
+// #include "utils.h"
+#endif
+
+
 namespace fallout {
 
 // 0x53A290
@@ -32,6 +39,8 @@ char GNW95_title[256];
 int main(int argc, char* argv[])
 {
     int rc;
+
+    Logger::getInstance().redirectStdio();
 
 #if _WIN32
     GNW95_mutex = CreateMutexA(0, TRUE, "GNW95MUTEX");
@@ -56,6 +65,22 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     chdir(SDL_AndroidGetExternalStoragePath());
+#endif
+
+
+
+#ifdef __SWITCH__
+    nsInitialize();
+    fsdevMountSdmc();
+
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+
+    const char* primaryPath = "sdmc:/switch/fallout1/";
+
+    // if (fileExists(primaryPath, "master.dat")) {
+        chdir(primaryPath);
+    // } 
 #endif
 
     SDL_ShowCursor(SDL_DISABLE);

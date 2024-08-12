@@ -120,11 +120,22 @@ bool gconfig_init(bool isMapper, int argc, char** argv)
     }
 
     // Make `fallout.cfg` file path.
-    sep = strrchr(argv[0], '\\');
-    if (sep != NULL) {
-        *sep = '\0';
-        snprintf(gconfig_file_name, sizeof(gconfig_file_name), "%s\\%s", argv[0], GAME_CONFIG_FILE_NAME);
-        *sep = '\\';
+    memset(gconfig_file_name, 0, sizeof(gconfig_file_name));
+
+    if (argc > 0 && argv[0] != NULL) {
+        char* executable = argv[0];
+        char* sep = strrchr(executable, '\\');
+        if (sep != NULL) {
+            *sep = '\0';
+            snprintf(gconfig_file_name,
+                    sizeof(gconfig_file_name),
+                    "%s\\%s",
+                    executable,
+                    GAME_CONFIG_FILE_NAME);
+            *sep = '\\';
+        } else {
+            strcpy(gconfig_file_name, GAME_CONFIG_FILE_NAME);
+        }
     } else {
         strcpy(gconfig_file_name, GAME_CONFIG_FILE_NAME);
     }
