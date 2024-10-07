@@ -3,6 +3,13 @@
 #include <limits.h>
 #include <stdio.h>
 
+#ifdef __SWITCH__
+#include <switch.h>
+#include <logger.h>
+#include <queue>
+#include <string> // surely we can get rid of this
+#endif
+
 #include "audio_engine.h"
 #include "platform_compat.h"
 #include "plib/color/color.h"
@@ -122,6 +129,39 @@ static bool bk_disabled;
 // 0x671F08
 static unsigned int bk_process_time;
 
+#ifdef __SWITCH__
+    // int lastControllerTime = 0;
+
+    // const int CONTROLLER_R_DEADZONE = 8000;
+
+    // int touchMouseDeltaX = 0;
+    // int touchMouseDeltaY = 0;
+    static bool textInputActive = false;
+    static std::string textInputBuffer;
+    static std::queue<SDL_TextInputEvent> textInputQueue;
+
+    // PadState pad;
+
+    // enum class HidControllerButtons {
+    //     KEY_A,
+    //     KEY_B,
+    //     KEY_X,
+    //     KEY_Y,
+    //     KEY_PLUS,
+    //     KEY_MINUS,
+    //     KEY_LSTICK,
+    //     KEY_RSTICK,
+    //     KEY_DPAD_UP,
+    //     KEY_DPAD_DOWN,
+    //     KEY_L,
+    //     KEY_R,
+    //     KEY_ZL,
+    //     KEY_ZR
+    // };
+
+#endif
+
+
 // 0x4B32C0
 int GNW_input_init(int use_msec_timer)
 {
@@ -151,13 +191,18 @@ int GNW_input_init(int use_msec_timer)
     input_my = -1;
     bk_disabled = 0;
     game_paused = false;
-    pause_key = KEY_ALT_P;
+    pause_key = KEY_ALT_P; // do we have to change these for Switch?
     pause_win_func = default_pause_window;
     screendump_func = default_screendump;
     bk_list = NULL;
-    screendump_key = KEY_ALT_C;
+    screendump_key = KEY_ALT_C; // do we have to change these for Switch?
 
     set_idle_func(idleImpl);
+
+    #ifdef __SWITCH__
+    // padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    // padInitializeDefault(&pad);
+    #endif
 
     return 0;
 }
@@ -1106,11 +1151,16 @@ void GNW95_process_message()
             break;
         case SDL_KEYDOWN:
         case SDL_KEYUP:
-            if (!kb_is_disabled()) {
+            if (!kb_is_disabled() && !textInputActive) {
                 keyboardData.key = e.key.keysym.scancode;
                 keyboardData.down = (e.key.state & SDL_PRESSED) != 0;
                 GNW95_process_key(&keyboardData);
             }
+            break;
+        case SDL_TEXTINPUT:
+        #ifdef __SWITCH__
+            handleTextInputEvent(e.text);
+        #endif
             break;
         case SDL_WINDOWEVENT:
             switch (e.window.event) {
@@ -1140,7 +1190,7 @@ void GNW95_process_message()
 
     touch_process_gesture();
 
-    if (GNW95_isActive && !kb_is_disabled()) {
+    if (!textInputActive && GNW95_isActive && !kb_is_disabled()) {
         // NOTE: Uninline
         unsigned int tick = get_time();
 
@@ -1160,6 +1210,16 @@ void GNW95_process_message()
             }
         }
     }
+
+    #ifdef __SWITCH__
+        // padUpdate(&pad);
+        // uint64_t kDown = padGetButtonsDown(&pad);
+        // uint64_t kUp = padGetButtonsUp(&pad);
+        // uint64_t kHeld = padGetButtons(&pad);
+
+        // handleSwitchControllerEvents(kDown, kUp, kHeld);
+        processTextInputQueue();
+    #endif
 }
 
 // 0x4B4638
@@ -1227,14 +1287,90 @@ static void idleImpl()
     SDL_Delay(125);
 }
 
-void beginTextInput()
-{
+void beginTextInput() {
+    textInputActive = true;
+    textInputBuffer.clear();
+
+    while (!textInputQueue.empty()) {
+        textInputQueue.pop();
+    }
+
     SDL_StartTextInput();
 }
 
-void endTextInput()
-{
+void endTextInput() {
     SDL_StopTextInput();
+    textInputActive = false;
+}
+
+void handleTextInputEvent(const SDL_TextInputEvent& textEvent) {
+    textInputQueue.push(textEvent);
+}
+
+void processTextInputQueue() {
+    while (!textInputQueue.empty()) {
+        SDL_TextInputEvent textEvent = textInputQueue.front();
+        textInputQueue.pop();
+        Logger::getInstance().logWithTimestamp("Processing text input event: %s", textEvent.text);
+        for (const char* ch = textEvent.text; *ch != '\0'; ++ch) {
+            SDL_Scancode scancode = mapCharToScancode(*ch);
+            if (scancode == SDL_SCANCODE_UNKNOWN) {
+                Logger::getInstance().logWithTimestamp("Unknown scancode for character: %c", *ch);
+                continue;
+            }
+            simulateKeyEvent(scancode, *ch);
+        }
+    }
+}
+
+SDL_Scancode mapCharToScancode(char ch) {
+    if (ch >= 'a' && ch <= 'z') {
+        return static_cast<SDL_Scancode>(SDL_SCANCODE_A + (ch - 'a'));
+    }
+    if (ch >= 'A' && ch <= 'Z') {
+        return static_cast<SDL_Scancode>(SDL_SCANCODE_A + (ch - 'A'));
+    }
+    if (ch >= '0' && ch <= '9') {
+        return static_cast<SDL_Scancode>(SDL_SCANCODE_0 + (ch - '0'));
+    }
+    switch (ch) {
+        case ' ': return SDL_SCANCODE_SPACE;
+        case '-': return SDL_SCANCODE_MINUS;
+        case '=': return SDL_SCANCODE_EQUALS;
+        case '[': return SDL_SCANCODE_LEFTBRACKET;
+        case ']': return SDL_SCANCODE_RIGHTBRACKET;
+        case '\\': return SDL_SCANCODE_BACKSLASH;
+        case ';': return SDL_SCANCODE_SEMICOLON;
+        case '\'': return SDL_SCANCODE_APOSTROPHE;
+        case ',': return SDL_SCANCODE_COMMA;
+        case '.': return SDL_SCANCODE_PERIOD;
+        case '/': return SDL_SCANCODE_SLASH;
+        default: return SDL_SCANCODE_UNKNOWN;
+    }
+}
+
+void simulateKeyEvent(SDL_Scancode scancode, char ch) {
+    KeyboardData keyboardData;
+    bool isUppercase = (ch >= 'A' && ch <= 'Z');
+
+    if (isUppercase) {
+        keyboardData.key = SDL_SCANCODE_LSHIFT;
+        keyboardData.down = true;
+        GNW95_process_key(&keyboardData);
+    }
+
+    keyboardData.key = scancode;
+    keyboardData.down = true;
+    GNW95_process_key(&keyboardData);
+
+    keyboardData.down = false;
+    GNW95_process_key(&keyboardData);
+
+    if (isUppercase) {
+        keyboardData.key = SDL_SCANCODE_LSHIFT;
+        keyboardData.down = false;
+        GNW95_process_key(&keyboardData);
+    }
 }
 
 } // namespace fallout

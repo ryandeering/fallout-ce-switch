@@ -1,6 +1,10 @@
 #ifndef FALLOUT_PLIB_GNW_INPUT_H_
 #define FALLOUT_PLIB_GNW_INPUT_H_
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #include <SDL.h>
 
 #include "plib/gnw/kb.h"
@@ -52,6 +56,12 @@ void GNW95_lost_focus();
 
 void beginTextInput();
 void endTextInput();
+
+void handleTextInputEvent(const SDL_TextInputEvent& textEvent);
+void processStoredTextInput();
+void processTextInputQueue();
+SDL_Scancode mapCharToScancode(char ch);
+void simulateKeyEvent(SDL_Scancode scancode, char ch);
 
 } // namespace fallout
 
