@@ -1437,9 +1437,9 @@ static void op_obj_can_see_obj(Program* program)
             stat_level(object1, STAT_PERCEPTION);
 
             if (is_within_perception(object1, object2)) {
-                Object* a5;
+                Object* a5 = object1;
                 make_straight_path(object1, object1->tile, object2->tile, NULL, &a5, 16);
-                if (a5 == object2) {
+                if (a5 == NULL || a5 == object2) {
                     result = 1;
                 }
             }
