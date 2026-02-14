@@ -38,3 +38,8 @@ Thumbs.db
 *.log
 *.tmp
 *.nso
+
+# Ignore analysis and debugging directories
+bug hunt/
+ghidra/
+ghidra_11.3.2_PUBLIC/

@@ -207,6 +207,13 @@ bool cache_flush(Cache* cache)
         return false;
     }
 
+#ifdef __SWITCH__
+    // Don't flush large caches on Switch - keep pre-cached assets in memory
+    if (cache->maxSize >= 256 * 1024 * 1024) {
+        return true;
+    }
+#endif
+
     // Loop thru cache entries and mark those with no references for eviction.
     for (int index = 0; index < cache->entriesLength; index++) {
         CacheEntry* cacheEntry = cache->entries[index];

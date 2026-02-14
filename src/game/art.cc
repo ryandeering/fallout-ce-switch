@@ -90,6 +90,11 @@ int art_init()
         cacheSize = 8;
     }
 
+#ifdef __SWITCH__
+    // Override cache size for Switch - use 256MB for pre-caching optimization
+    cacheSize = 256;
+#endif
+
     if (!cache_init(&art_cache, art_data_size, art_data_load, art_data_free, cacheSize << 20)) {
         debug_printf("cache_init failed in art_init\n");
         return -1;
@@ -451,7 +456,12 @@ int art_ptr_unlock(CacheEntry* handle)
 // 0x418A48
 int art_flush()
 {
+#ifdef __SWITCH__
+    // Don't flush on Switch - keep pre-cached art in memory
+    return 1;
+#else
     return cache_flush(&art_cache);
+#endif
 }
 
 // 0x418A60
@@ -1215,5 +1225,74 @@ static int paddingForSize(int size)
 {
     return (sizeof(int) - size % sizeof(int)) % sizeof(int);
 }
+
+#ifdef __SWITCH__
+// Pre-cache common art assets to reduce load times
+void art_precache_common()
+{
+    CacheEntry* cache_entry;
+    void* data;
+
+    const int common_anims[] = { ANIM_STAND, ANIM_WALK };
+    const int num_anims = sizeof(common_anims) / sizeof(common_anims[0]);
+    const int weapon_codes[] = { 0, 1, 2 };  // unarmed, knife, pistol
+    const int num_weapons = sizeof(weapon_codes) / sizeof(weapon_codes[0]);
+
+    // Pre-cache critter animations
+    int critter_count = art[OBJ_TYPE_CRITTER].fileNamesLength;
+    for (int critter_idx = 0; critter_idx < critter_count; critter_idx++) {
+        for (int anim_idx = 0; anim_idx < num_anims; anim_idx++) {
+            for (int weapon_idx = 0; weapon_idx < num_weapons; weapon_idx++) {
+                for (int rotation = 0; rotation < ROTATION_COUNT; rotation++) {
+                    int fid = art_id(OBJ_TYPE_CRITTER, critter_idx, common_anims[anim_idx], weapon_codes[weapon_idx], rotation);
+                    if (cache_lock(&art_cache, fid, &data, &cache_entry)) {
+                        cache_unlock(&art_cache, cache_entry);
+                    }
+                }
+            }
+        }
+    }
+
+    // Pre-cache interface elements
+    int intrface_count = art[OBJ_TYPE_INTERFACE].fileNamesLength;
+    for (int i = 0; i < intrface_count; i++) {
+        int fid = art_id(OBJ_TYPE_INTERFACE, i, 0, 0, 0);
+        if (cache_lock(&art_cache, fid, &data, &cache_entry)) {
+            cache_unlock(&art_cache, cache_entry);
+        }
+    }
+
+    // Pre-cache inventory images
+    int inven_count = art[OBJ_TYPE_INVENTORY].fileNamesLength;
+    for (int i = 0; i < inven_count; i++) {
+        int fid = art_id(OBJ_TYPE_INVENTORY, i, 0, 0, 0);
+        if (cache_lock(&art_cache, fid, &data, &cache_entry)) {
+            cache_unlock(&art_cache, cache_entry);
+        }
+    }
+
+    // Pre-cache common items
+    int items_count = art[OBJ_TYPE_ITEM].fileNamesLength;
+    for (int i = 0; i < items_count; i++) {
+        for (int rotation = 0; rotation < ROTATION_COUNT; rotation++) {
+            int fid = art_id(OBJ_TYPE_ITEM, i, 0, 0, rotation);
+            if (cache_lock(&art_cache, fid, &data, &cache_entry)) {
+                cache_unlock(&art_cache, cache_entry);
+            }
+        }
+    }
+
+    // Pre-cache scenery
+    int scenery_count = art[OBJ_TYPE_SCENERY].fileNamesLength;
+    for (int i = 0; i < scenery_count; i++) {
+        for (int rotation = 0; rotation < ROTATION_COUNT; rotation++) {
+            int fid = art_id(OBJ_TYPE_SCENERY, i, 0, 0, rotation);
+            if (cache_lock(&art_cache, fid, &data, &cache_entry)) {
+                cache_unlock(&art_cache, cache_entry);
+            }
+        }
+    }
+}
+#endif
 
 } // namespace fallout

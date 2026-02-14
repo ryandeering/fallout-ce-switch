@@ -5,6 +5,7 @@
 
 #include "game/actions.h"
 #include "game/anim.h"
+#include "game/art.h"
 #include "game/automap.h"
 #include "game/bmpdlog.h"
 #include "game/combat.h"
@@ -144,12 +145,29 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     win_set_minimized_title(windowTitle);
 
     VideoOptions video_options;
+#ifdef __SWITCH__
     video_options.width = 1708;
     video_options.height = 960;
     video_options.fullscreen = true;
     video_options.scale = 2;
     video_options.width /= video_options.scale;
     video_options.height /= video_options.scale;
+
+    // Create fallout1_nx.ini with default values if it doesn't exist
+    FILE* iniCheck = compat_fopen("fallout1_nx.ini", "r");
+    if (iniCheck == NULL) {
+        FILE* iniFile = compat_fopen("fallout1_nx.ini", "w");
+        if (iniFile != NULL) {
+            fprintf(iniFile, "[MAIN]\n");
+            fprintf(iniFile, "SCR_WIDTH=1708\n");
+            fprintf(iniFile, "SCR_HEIGHT=960\n");
+            fprintf(iniFile, "SCALE_2X=1\n");
+            fprintf(iniFile, "; Change resolution and determine scaling. SCALE_2X=1 will turn 2x scaling on. SCALE_2X=0 will turn it off.\n");
+            fclose(iniFile);
+        }
+    } else {
+        fclose(iniCheck);
+    }
 
     Config resolutionConfig;
     if (config_init(&resolutionConfig)) {
@@ -173,6 +191,40 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
         }
         config_exit(&resolutionConfig);
     }
+#else
+    video_options.width = 640;
+    video_options.height = 480;
+    video_options.fullscreen = false;
+    video_options.scale = 1;
+
+    Config resolutionConfig;
+    if (config_init(&resolutionConfig)) {
+        if (config_load(&resolutionConfig, "f1_res.ini", false)) {
+            int screenWidth;
+            if (config_get_value(&resolutionConfig, "MAIN", "SCR_WIDTH", &screenWidth)) {
+                video_options.width = std::max(screenWidth, 640);
+            }
+
+            int screenHeight;
+            if (config_get_value(&resolutionConfig, "MAIN", "SCR_HEIGHT", &screenHeight)) {
+                video_options.height = std::max(screenHeight, 480);
+            }
+
+            bool windowed;
+            if (configGetBool(&resolutionConfig, "MAIN", "WINDOWED", &windowed)) {
+                video_options.fullscreen = !windowed;
+            }
+
+            int scaleValue;
+            if (config_get_value(&resolutionConfig, "MAIN", "SCALE_2X", &scaleValue)) {
+                video_options.scale = scaleValue + 1;
+                video_options.width /= video_options.scale;
+                video_options.height /= video_options.scale;
+            }
+        }
+        config_exit(&resolutionConfig);
+    }
+#endif
 
     initWindow(&video_options, flags);
     palette_init();
@@ -340,6 +392,12 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">init_options_menu\n");
+
+#ifdef __SWITCH__
+    // Pre-cache common art assets to reduce load times during gameplay
+    art_precache_common();
+    debug_printf(">art_precache_common\n");
+#endif
 
     return 0;
 }

@@ -5109,6 +5109,13 @@ static int do_move_timer(int inventoryWindowType, Object* item, int max)
 {
     setup_move_timer_win(inventoryWindowType, item);
 
+#ifdef __SWITCH__
+    // Set flag so L-stick opens keyboard instead of toggling sneak
+    if (inventoryWindowType == INVENTORY_WINDOW_TYPE_MOVE_ITEMS) {
+        gInTextInputDialog = true;
+    }
+#endif
+
     int value;
     int min;
     if (inventoryWindowType == INVENTORY_WINDOW_TYPE_MOVE_ITEMS) {
@@ -5130,6 +5137,9 @@ static int do_move_timer(int inventoryWindowType, Object* item, int max)
 
         int keyCode = get_input();
         if (keyCode == KEY_ESCAPE) {
+#ifdef __SWITCH__
+            gInTextInputDialog = false;
+#endif
             exit_move_timer_win(inventoryWindowType);
             return -1;
         }
@@ -5174,6 +5184,18 @@ static int do_move_timer(int inventoryWindowType, Object* item, int max)
         }
 
         if (inventoryWindowType == INVENTORY_WINDOW_TYPE_MOVE_ITEMS) {
+#ifdef __SWITCH__
+            // L-stick press opens numeric keyboard
+            if (keyCode == KEY_1) {
+                int kbdResult = showNumericKeyboard(value, max);
+                if (kbdResult >= min && kbdResult <= max) {
+                    value = kbdResult;
+                    v5 = true;
+                    draw_amount(value, inventoryWindowType);
+                }
+                continue;
+            }
+#endif
             if (keyCode >= KEY_0 && keyCode <= KEY_9) {
                 int number = keyCode - KEY_0;
                 if (!v5) {
@@ -5202,6 +5224,10 @@ static int do_move_timer(int inventoryWindowType, Object* item, int max)
         sharedFpsLimiter.throttle();
     }
 
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+    flush_input_buffer();  // Clear any stuck keys
+#endif
     exit_move_timer_win(inventoryWindowType);
 
     return value;

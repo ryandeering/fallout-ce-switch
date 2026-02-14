@@ -3818,6 +3818,33 @@ static void about_loop()
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    // Set flag so L-stick opens keyboard instead of toggling sneak
+    gInTextInputDialog = true;
+
+    // Flush any pending input
+    flush_input_buffer();
+
+    // Open keyboard automatically on Switch
+    char kbdBuffer[128] = {0};
+    if (showTextKeyboard(NULL, kbdBuffer, 126)) {
+        // Copy the result into about_input_string
+        int len = strlen(kbdBuffer);
+        for (int i = 0; i < len && i < 126; i++) {
+            about_input_string[i] = kbdBuffer[i];
+        }
+        about_input_index = len;
+        about_input_string[about_input_index] = about_input_cursor;
+        about_input_string[about_input_index + 1] = '\0';
+    }
+    // Redraw with correct font
+    int savedFont = text_curr();
+    text_font(101);
+    about_update_display(1);
+    text_font(savedFont);
+    flush_input_buffer();
+#endif
+
     while (1) {
         sharedFpsLimiter.mark();
 
@@ -3828,6 +3855,10 @@ static void about_loop()
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 
@@ -3845,6 +3876,32 @@ static int about_process_input(int input)
     if (about_win == -1) {
         return -1;
     }
+
+#ifdef __SWITCH__
+    // L-stick press reopens keyboard
+    if (input == KEY_1) {
+        char kbdBuffer[128] = {0};
+        // Pre-fill with current text (without cursor)
+        strncpy(kbdBuffer, about_input_string, about_input_index);
+        kbdBuffer[about_input_index] = '\0';
+
+        if (showTextKeyboard(kbdBuffer, kbdBuffer, 126)) {
+            int len = strlen(kbdBuffer);
+            for (int i = 0; i < len && i < 126; i++) {
+                about_input_string[i] = kbdBuffer[i];
+            }
+            about_input_index = len;
+            about_input_string[about_input_index] = about_input_cursor;
+            about_input_string[about_input_index + 1] = '\0';
+        }
+        // Redraw with correct font
+        int savedFont = text_curr();
+        text_font(101);
+        about_update_display(1);
+        text_font(savedFont);
+        return 0;
+    }
+#endif
 
     switch (input) {
     case KEY_BACKSPACE:
