@@ -79,15 +79,21 @@ void GNW95_lost_focus();
 void beginTextInput();
 void endTextInput();
 
+#ifdef __SWITCH__
 void handleTextInputEvent(const SDL_TextInputEvent& textEvent);
-void processStoredTextInput();
 void processTextInputQueue();
 SDL_Scancode mapCharToScancode(char ch);
 void simulateKeyEvent(SDL_Scancode scancode, char ch);
+int showNumericKeyboard(int currentValue, int maxValue);
+bool showTextKeyboard(const char* initialText, char* outBuffer, int outBufferSize, int maxLen);
+bool editTextBufferWithKeyboard(char* textBuffer, int textBufferSize, int maxLen);
+
+extern bool gInTextInputDialog;
 
 void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld);
 void handleControllerButtonEvent(HidControllerButtons button, bool pressed);
 void handleControllerAxisEvent(const HidAnalogStickState& rightStick);
+#endif
 
 } // namespace fallout
 

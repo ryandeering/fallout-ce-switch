@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL.h>
+
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -140,6 +142,13 @@ static size_t read_threshold = 16384;
 
 // 0x539D54
 static db_read_callback* read_callback = NULL;
+
+static unsigned long long gDbReadBytes = 0;
+static unsigned long long gDbReadOps = 0;
+static unsigned long long gDbSlowReadOps = 0;
+static float gDbSlowestReadMs = 0.0f;
+static Uint64 gDbPerfFrequency = 0;
+static constexpr float kDbSlowReadThresholdMs = 10.0f;
 
 // 0x6713C8
 static DB_DATABASE* database_list[DB_DATABASE_LIST_CAPACITY];
@@ -667,6 +676,28 @@ int db_fclose(DB_FILE* stream)
     return db_delete_fp_rec(stream);
 }
 
+void db_get_io_diagnostics(unsigned long long* readBytesPtr,
+    unsigned long long* readOpsPtr,
+    unsigned long long* slowReadOpsPtr,
+    float* slowestReadMsPtr)
+{
+    if (readBytesPtr != NULL) {
+        *readBytesPtr = gDbReadBytes;
+    }
+
+    if (readOpsPtr != NULL) {
+        *readOpsPtr = gDbReadOps;
+    }
+
+    if (slowReadOpsPtr != NULL) {
+        *slowReadOpsPtr = gDbSlowReadOps;
+    }
+
+    if (slowestReadMsPtr != NULL) {
+        *slowestReadMsPtr = gDbSlowestReadMs;
+    }
+}
+
 // 0x4AFD50
 size_t db_fread(void* ptr, size_t size, size_t count, DB_FILE* stream)
 {
@@ -676,6 +707,18 @@ size_t db_fread(void* ptr, size_t size, size_t count, DB_FILE* stream)
     unsigned char* buf;
     size_t elements_read;
     size_t v1;
+    Uint64 readStartCounter = 0;
+    const bool shouldTrackRead = size != 0 && count != 0;
+
+    if (shouldTrackRead) {
+        if (gDbPerfFrequency == 0) {
+            gDbPerfFrequency = SDL_GetPerformanceFrequency();
+        }
+
+        if (gDbPerfFrequency != 0) {
+            readStartCounter = SDL_GetPerformanceCounter();
+        }
+    }
 
     buf = (unsigned char*)ptr;
     elements_read = 0;
@@ -874,6 +917,24 @@ size_t db_fread(void* ptr, size_t size, size_t count, DB_FILE* stream)
                     }
                     break;
                 }
+            }
+        }
+    }
+
+    if (shouldTrackRead) {
+        unsigned long long bytesRead = static_cast<unsigned long long>(elements_read) * static_cast<unsigned long long>(size);
+        gDbReadBytes += bytesRead;
+        gDbReadOps++;
+
+        if (readStartCounter != 0) {
+            const Uint64 elapsedCounters = SDL_GetPerformanceCounter() - readStartCounter;
+            const float elapsedMs = static_cast<float>(elapsedCounters * 1000.0 / static_cast<double>(gDbPerfFrequency));
+            if (elapsedMs >= kDbSlowReadThresholdMs) {
+                gDbSlowReadOps++;
+            }
+
+            if (elapsedMs > gDbSlowestReadMs) {
+                gDbSlowestReadMs = elapsedMs;
             }
         }
     }

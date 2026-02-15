@@ -1098,6 +1098,44 @@ int save_file_dialog(char* title, char** fileList, char* dest, int fileListLengt
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    gInTextInputDialog = true;
+
+    auto promptKeyboardTextInput = [&]() {
+        char keyboardBuffer[32];
+        memcpy(keyboardBuffer, fileNameCopy, fileNameCopyLength);
+        keyboardBuffer[fileNameCopyLength] = '\0';
+
+        if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), 8)) {
+            int previousNameWidth = text_width(fileNameCopy);
+
+            int keyboardLength = strlen(keyboardBuffer);
+            if (keyboardLength > 8) {
+                keyboardLength = 8;
+            }
+
+            memcpy(fileNameCopy, keyboardBuffer, keyboardLength);
+            fileNameCopyLength = keyboardLength;
+            fileNameCopy[fileNameCopyLength] = ' ';
+            fileNameCopy[fileNameCopyLength + 1] = '\0';
+
+            int clearWidth = previousNameWidth;
+            int updatedWidth = text_width(fileNameCopy);
+            if (updatedWidth > clearWidth) {
+                clearWidth = updatedWidth;
+            }
+
+            buf_fill(fileNameBufferPtr, clearWidth, cursorHeight, backgroundWidth, 100);
+            text_to_buf(fileNameBufferPtr, fileNameCopy, backgroundWidth, backgroundWidth, colorTable[992]);
+            win_draw(win);
+        }
+
+        flush_input_buffer();
+    };
+
+    promptKeyboardTextInput();
+#endif
+
     int blinkingCounter = 3;
     bool blink = false;
 
@@ -1115,6 +1153,13 @@ int save_file_dialog(char* title, char** fileList, char* dest, int fileListLengt
         bool isScrolling = false;
 
         convertMouseWheelToArrowKey(&keyCode);
+
+#ifdef __SWITCH__
+        if (keyCode == KEY_1) {
+            promptKeyboardTextInput();
+            continue;
+        }
+#endif
 
         if (keyCode == 500) {
             rc = 0;
@@ -1361,6 +1406,10 @@ int save_file_dialog(char* title, char** fileList, char* dest, int fileListLengt
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 

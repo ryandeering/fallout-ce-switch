@@ -154,6 +154,10 @@ Art* load_frame(const char* path);
 int load_frame_into(const char* path, unsigned char* data);
 int save_frame(const char* path, unsigned char* data);
 
+#ifdef __SWITCH__
+void art_precache_common();
+#endif
+
 } // namespace fallout
 
 #endif /* FALLOUT_GAME_ART_H_ */

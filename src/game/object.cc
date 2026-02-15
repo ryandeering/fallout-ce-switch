@@ -1695,7 +1695,19 @@ void obj_rebuild_all_light()
     for (int tile = 0; tile < HEX_GRID_SIZE; tile++) {
         ObjectListNode* objectListNode = objectTable[tile];
         while (objectListNode != NULL) {
-            obj_adjust_light(objectListNode->obj, 0, NULL);
+            Object* obj = objectListNode->obj;
+#ifdef __SWITCH__
+            // Early-exit checks to skip objects that don't contribute to lighting
+            // These checks mirror those in obj_adjust_light but avoid function call overhead
+            if (obj->lightIntensity > 0
+                && (obj->flags & OBJECT_HIDDEN) == 0
+                && (obj->flags & OBJECT_LIGHTING) != 0
+                && hexGridTileIsValid(obj->tile)) {
+                obj_adjust_light(obj, 0, NULL);
+            }
+#else
+            obj_adjust_light(obj, 0, NULL);
+#endif
             objectListNode = objectListNode->next;
         }
     }

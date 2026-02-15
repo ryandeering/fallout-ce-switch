@@ -18,6 +18,7 @@
 
 #ifdef __SWITCH__
 #include <switch.h>
+#include "logger.h"
 #endif
 
 
@@ -38,7 +39,9 @@ int main(int argc, char* argv[])
 {
     int rc;
 
+#ifdef __SWITCH__
     //Logger::getInstance().redirectStdio();
+#endif
 
 #if _WIN32
     GNW95_mutex = CreateMutexA(0, TRUE, "GNW95MUTEX");

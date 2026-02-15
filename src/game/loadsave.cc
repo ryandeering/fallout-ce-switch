@@ -188,6 +188,8 @@ static char* patches = NULL;
 // 0x505974
 static char emgpath[] = "\\FALLOUT\\CD\\DATA\\SAVEGAME";
 
+static long gvar_offset_correction = 0;
+
 // 0x505990
 static SaveGameHandler* master_save_list[LOAD_SAVE_HANDLER_COUNT] = {
     DummyFunc,
@@ -1594,6 +1596,8 @@ int isLoadingGame()
 // 0x46FCCC
 static int LoadSlot(int slot)
 {
+    gvar_offset_correction = 0;
+
     gmouse_set_cursor(MOUSE_CURSOR_WAIT_PLANET);
 
     if (isInCombat()) {
@@ -2204,6 +2208,43 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    gInTextInputDialog = true;
+
+    auto promptKeyboardTextInput = [&]() {
+        char keyboardBuffer[256];
+        memcpy(keyboardBuffer, text, textLength);
+        keyboardBuffer[textLength] = '\0';
+
+        if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), maxLength)) {
+            int previousNameWidth = nameWidth;
+
+            int keyboardLength = strlen(keyboardBuffer);
+            if (keyboardLength > maxLength) {
+                keyboardLength = maxLength;
+            }
+
+            memcpy(text, keyboardBuffer, keyboardLength);
+            textLength = keyboardLength;
+            text[textLength] = ' ';
+            text[textLength + 1] = '\0';
+
+            nameWidth = text_width(text);
+            int clearWidth = previousNameWidth;
+            if (nameWidth > clearWidth) {
+                clearWidth = nameWidth;
+            }
+
+            buf_fill(windowBuffer + windowWidth * y + x, clearWidth, lineHeight, windowWidth, backgroundColor);
+            text_to_buf(windowBuffer + windowWidth * y + x, text, windowWidth, windowWidth, textColor);
+            win_draw(win);
+        }
+
+        flush_input_buffer();
+    };
+
+#endif
+
     int blinkCounter = 3;
     bool blink = false;
 
@@ -2219,6 +2260,13 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
         if ((keyCode & 0x80000000) == 0) {
             v1++;
         }
+
+#ifdef __SWITCH__
+        if (keyCode == KEY_1) {
+            promptKeyboardTextInput();
+            continue;
+        }
+#endif
 
         if (keyCode == doneKeyCode || keyCode == KEY_RETURN) {
             rc = 0;
@@ -2272,6 +2320,10 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 
@@ -2403,11 +2455,99 @@ static int GameMap2Slot(DB_FILE* stream)
     return 0;
 }
 
+static bool isSavFileName(const char* fileName, int nameLen)
+{
+    if (nameLen < 5) {
+        return false;
+    }
+
+    const char* ext = fileName + nameLen - 4;
+    return ext[0] == '.'
+        && (ext[1] == 'S' || ext[1] == 's')
+        && (ext[2] == 'A' || ext[2] == 'a')
+        && (ext[3] == 'V' || ext[3] == 'v');
+}
+
+static int checkFileListPosition(DB_FILE* stream, long pos)
+{
+    db_fseek(stream, pos, SEEK_SET);
+
+    int count;
+    if (db_freadInt(stream, &count) == -1) {
+        return -1;
+    }
+
+    // Valid count should be 1-100 map files
+    if (count < 1 || count > 100) {
+        return -1;
+    }
+
+    // Validate all file names from list. SlotMap2Game/mygets treats names as
+    // short null-terminated strings with a max stored length of 15 bytes.
+    for (int index = 0; index < count; index++) {
+        char testName[16];
+        int nameLen = -1;
+
+        for (int i = 0; i < 15; i++) {
+            unsigned char c;
+            if (db_freadByte(stream, &c) == -1) {
+                return -1;
+            }
+
+            testName[i] = (char)c;
+            if (c == 0) {
+                nameLen = i;
+                break;
+            }
+        }
+
+        if (nameLen == -1) {
+            return -1;
+        }
+
+        if (!isSavFileName(testName, nameLen)) {
+            return -1;
+        }
+    }
+
+    return count;
+}
+
 // 0x4717E0
 static int SlotMap2Game(DB_FILE* stream)
 {
+    long startPos = db_ftell(stream);
+
     int fileNameListLength;
     if (db_freadInt(stream, &fileNameListLength) == -1) {
+        return -1;
+    }
+
+    long foundPos = -1;
+
+    if (checkFileListPosition(stream, startPos) > 0) {
+        foundPos = startPos;
+    } else {
+        long maxScanOffset = std::min<long>(startPos, 32768);
+        for (long offset = 4; offset <= maxScanOffset; offset += 4) {
+            long testPos = startPos - offset;
+            if (testPos < 0) break;
+
+            int result = checkFileListPosition(stream, testPos);
+            if (result > 0) {
+                foundPos = testPos;
+                break;
+            }
+        }
+    }
+
+    if (foundPos >= 0) {
+        gvar_offset_correction = startPos - foundPos;
+        db_fseek(stream, foundPos, SEEK_SET);
+        if (db_freadInt(stream, &fileNameListLength) == -1) {
+            return -1;
+        }
+    } else {
         return -1;
     }
 
@@ -2423,6 +2563,145 @@ static int SlotMap2Game(DB_FILE* stream)
     snprintf(str0, sizeof(str0), "%s\\%s\\%s", patches, "MAPS", "AUTOMAP.DB");
     compat_remove(str0);
 
+#ifdef __SWITCH__
+    struct FileData {
+        char srcPath[COMPAT_MAX_PATH];
+        char dstPath[COMPAT_MAX_PATH];
+        char fileName[COMPAT_MAX_PATH];
+        void* data;
+        size_t size;
+    };
+
+    FileData* files = (FileData*)mem_malloc(sizeof(FileData) * (fileNameListLength + 1));
+    if (files == NULL) {
+        return -1;
+    }
+
+    int fileCount = 0;
+
+    for (int index = 0; index < fileNameListLength; index++) {
+        char fileName[COMPAT_MAX_PATH];
+        if (mygets(fileName, stream) == -1) {
+            break;
+        }
+
+        snprintf(files[fileCount].srcPath, COMPAT_MAX_PATH, "%s/%s/SLOT%.2d/%s",
+                 patches, "SAVEGAME", slot_cursor + 1, fileName);
+        snprintf(files[fileCount].dstPath, COMPAT_MAX_PATH, "%s/%s/%s",
+                 patches, "MAPS", fileName);
+        snprintf(files[fileCount].fileName, COMPAT_MAX_PATH, "%s", fileName);
+
+        for (char* p = files[fileCount].srcPath; *p; p++) if (*p == '\\') *p = '/';
+        for (char* p = files[fileCount].dstPath; *p; p++) if (*p == '\\') *p = '/';
+
+        FILE* f = fopen(files[fileCount].srcPath, "rb");
+        if (f == NULL) {
+            for (int j = 0; j < fileCount; j++) {
+                if (files[j].data) mem_free(files[j].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+
+        fseek(f, 0, SEEK_END);
+        long fileSize = ftell(f);
+        if (fileSize < 0) {
+            fclose(f);
+            for (int j = 0; j < fileCount; j++) {
+                if (files[j].data) mem_free(files[j].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+        files[fileCount].size = static_cast<size_t>(fileSize);
+        fseek(f, 0, SEEK_SET);
+
+        files[fileCount].data = mem_malloc(files[fileCount].size);
+        if (files[fileCount].data == NULL) {
+            fclose(f);
+            for (int j = 0; j < fileCount; j++) {
+                if (files[j].data) mem_free(files[j].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+
+        size_t bytesRead = fread(files[fileCount].data, 1, files[fileCount].size, f);
+        fclose(f);
+        if (bytesRead != files[fileCount].size) {
+            mem_free(files[fileCount].data);
+            for (int j = 0; j < fileCount; j++) {
+                if (files[j].data) mem_free(files[j].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+        fileCount++;
+    }
+
+    const char* automapFileName = strmfe(str1, "AUTOMAP.DB", "SAV");
+    snprintf(files[fileCount].srcPath, COMPAT_MAX_PATH, "%s/%s/SLOT%.2d/%s",
+             patches, "SAVEGAME", slot_cursor + 1, automapFileName);
+    snprintf(files[fileCount].dstPath, COMPAT_MAX_PATH, "%s/%s/%s",
+             patches, "MAPS", "AUTOMAP.DB");
+    snprintf(files[fileCount].fileName, COMPAT_MAX_PATH, "%s", "AUTOMAP.DB");
+
+    for (char* p = files[fileCount].srcPath; *p; p++) if (*p == '\\') *p = '/';
+    for (char* p = files[fileCount].dstPath; *p; p++) if (*p == '\\') *p = '/';
+
+    FILE* f = fopen(files[fileCount].srcPath, "rb");
+    if (f != NULL) {
+        fseek(f, 0, SEEK_END);
+        long fileSize = ftell(f);
+        if (fileSize < 0) {
+            fclose(f);
+            for (int i = 0; i < fileCount; i++) {
+                if (files[i].data) mem_free(files[i].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+        files[fileCount].size = static_cast<size_t>(fileSize);
+        fseek(f, 0, SEEK_SET);
+
+        files[fileCount].data = mem_malloc(files[fileCount].size);
+        if (files[fileCount].data != NULL) {
+            size_t bytesRead = fread(files[fileCount].data, 1, files[fileCount].size, f);
+            if (bytesRead == files[fileCount].size) {
+                fileCount++;
+            } else {
+                mem_free(files[fileCount].data);
+            }
+        }
+        fclose(f);
+    }
+
+    int writeErrors = 0;
+    for (int i = 0; i < fileCount; i++) {
+        FILE* out = fopen(files[i].dstPath, "wb");
+        if (out == NULL) {
+            writeErrors++;
+            continue;
+        }
+        size_t bytesWritten = fwrite(files[i].data, 1, files[i].size, out);
+        fclose(out);
+        if (bytesWritten != files[i].size) {
+            writeErrors++;
+        } else {
+            db_add_hash_entry(files[i].fileName, '/');
+        }
+    }
+
+    for (int i = 0; i < fileCount; i++) {
+        if (files[i].data) mem_free(files[i].data);
+    }
+    mem_free(files);
+
+    if (writeErrors > 0) {
+        return -1;
+    }
+
+#else
     for (int index = 0; index < fileNameListLength; index += 1) {
         char fileName[COMPAT_MAX_PATH];
         if (mygets(fileName, stream) == -1) {
@@ -2444,11 +2723,14 @@ static int SlotMap2Game(DB_FILE* stream)
     if (copy_file(str0, str1) == -1) {
         return -1;
     }
+#endif
 
     int saved_automap_size;
     if (db_freadInt(stream, &saved_automap_size) == -1) {
         return -1;
     }
+
+    snprintf(str1, sizeof(str1), "%s\\%s", "MAPS", "AUTOMAP.DB");
 
     DB_FILE* automap_stream = db_fopen(str1, "rb");
     if (automap_stream == NULL) {
@@ -2815,6 +3097,11 @@ static int EraseSave()
     compat_remove(str0);
 
     return 0;
+}
+
+long getGvarOffsetCorrection()
+{
+    return gvar_offset_correction;
 }
 
 } // namespace fallout

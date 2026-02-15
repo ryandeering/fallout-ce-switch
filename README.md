@@ -15,8 +15,8 @@ You must own the game to play and have a Switch capable of running **unsigned co
 1. Purchase your copy on [GOG](https://www.gog.com/en/game/fallout) or [Steam](https://store.steampowered.com/app/38400/). The files need to be from a Windows installation (I think.)
 2. Download the latest [release](https://github.com/ryandeering/fallout-ce-switch/releases/latest) or build from the source. See YAML pipelines for reference.
 3. Drag the installation files into a new folder called `fallout1` in your `switch` folder on the root of your SD card.
-4. Create a file named `fallout1_nx.ini` in your `fallout1` folder
-5. In the fallout1_nx.ini file, paste the following content:
+4. Create a file named `fallout1_nx.ini` in your `fallout1` folder to override defaults. **If missing, the game now creates it on first launch.**
+5. Use the following content:
 ```ini
 [MAIN]
 SCR_WIDTH=1708
@@ -24,11 +24,10 @@ SCR_HEIGHT=960
 SCALE_2X=1
 ; Change resolution and determine scaling. SCALE_2X=1 will turn 2x scaling on. SCALE_2X=0 will turn it off. 
 ```
-*Note:* Failure to create the fallout1_nx.ini and required content in it will cause the game to immediately crash upon launch.
 
 6. Put the necessary executable in your `switch` folder on the root of your SD card, either `.nro` or `.nso`.
 
-> **Note:** I would not expect your original Fallout 1 saves/non-CE saves to work. And keep multiple saves! Quick save/quick loading currently save/load twice. This will be fixed... eventually.
+> **Note:** Fallout 1 CE saves from PC or platforms are/should be supported, but I am not responsible for any corruption or issues that may happen if you use them!
 
 ## Controls
 
@@ -39,7 +38,7 @@ SCALE_2X=1
 </div>
 
 - **Basic touchscreen support is implemented.**
-- **On-screen keyboard support implemented for names and saves.**
+- **Native on-screen keyboard support is implemented for saves, talking to NPCs, naming characters, changing amounts with sellers.**
 
 ## Configuration
 

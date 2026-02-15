@@ -72,6 +72,10 @@ void db_register_callback(db_read_callback* callback, size_t threshold);
 void db_enable_hash_table();
 int db_reset_hash_tables();
 int db_add_hash_entry(const char* path, int sep);
+void db_get_io_diagnostics(unsigned long long* readBytesPtr,
+    unsigned long long* readOpsPtr,
+    unsigned long long* slowReadOpsPtr,
+    float* slowestReadMsPtr);
 
 int db_freadUInt8(DB_FILE* stream, unsigned char* valuePtr);
 int db_freadInt8(DB_FILE* stream, char* valuePtr);

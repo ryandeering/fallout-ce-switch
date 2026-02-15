@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL.h>
+
 #include "int/sound.h"
 #include "plib/gnw/debug.h"
 #include "plib/gnw/memory.h"
@@ -27,6 +29,15 @@ static int cache_compare_reset_counter(const void* a1, const void* a2);
 
 // 0x4FEC7C
 static int lock_sound_ticker = 0;
+
+static unsigned long long gCacheLockHitCount = 0;
+static unsigned long long gCacheLockMissCount = 0;
+static unsigned long long gCacheEvictionCount = 0;
+static unsigned long long gCacheFlushCount = 0;
+static unsigned long long gCacheLoadSampleCount = 0;
+static float gCacheTotalLoadMs = 0.0f;
+static float gCacheMaxLoadMs = 0.0f;
+static Uint64 gCachePerfFrequency = 0;
 
 // 0x41E9C0
 bool cache_init(Cache* cache, CacheSizeProc* sizeProc, CacheReadProc* readProc, CacheFreeProc* freeProc, int maxSize)
@@ -111,10 +122,14 @@ bool cache_lock(Cache* cache, int key, void** data, CacheEntry** cacheEntryPtr)
     int index;
     int rc = cache_find(cache, key, &index);
     if (rc == 2) {
+        gCacheLockHitCount++;
+
         // Use existing cache entry.
         CacheEntry* cacheEntry = cache->entries[index];
         cacheEntry->hits++;
     } else if (rc == 3) {
+        gCacheLockMissCount++;
+
         // New cache entry is required.
         if (cache->entriesLength >= INT_MAX) {
             return false;
@@ -206,6 +221,15 @@ bool cache_flush(Cache* cache)
     if (cache == NULL) {
         return false;
     }
+
+    gCacheFlushCount++;
+
+#ifdef __SWITCH__
+    // Don't flush large caches on Switch - keep pre-cached assets in memory
+    if (cache->maxSize >= 256 * 1024 * 1024) {
+        return true;
+    }
+#endif
 
     // Loop thru cache entries and mark those with no references for eviction.
     for (int index = 0; index < cache->entriesLength; index++) {
@@ -355,6 +379,47 @@ int cache_destroy_list(int** tagsPtr)
     return 1;
 }
 
+void cache_get_diagnostics(unsigned long long* lockHitsPtr,
+    unsigned long long* lockMissesPtr,
+    unsigned long long* evictionsPtr,
+    unsigned long long* flushesPtr,
+    unsigned long long* loadSamplesPtr,
+    float* averageLoadMsPtr,
+    float* maxLoadMsPtr)
+{
+    if (lockHitsPtr != NULL) {
+        *lockHitsPtr = gCacheLockHitCount;
+    }
+
+    if (lockMissesPtr != NULL) {
+        *lockMissesPtr = gCacheLockMissCount;
+    }
+
+    if (evictionsPtr != NULL) {
+        *evictionsPtr = gCacheEvictionCount;
+    }
+
+    if (flushesPtr != NULL) {
+        *flushesPtr = gCacheFlushCount;
+    }
+
+    if (loadSamplesPtr != NULL) {
+        *loadSamplesPtr = gCacheLoadSampleCount;
+    }
+
+    if (averageLoadMsPtr != NULL) {
+        if (gCacheLoadSampleCount != 0) {
+            *averageLoadMsPtr = gCacheTotalLoadMs / static_cast<float>(gCacheLoadSampleCount);
+        } else {
+            *averageLoadMsPtr = 0.0f;
+        }
+    }
+
+    if (maxLoadMsPtr != NULL) {
+        *maxLoadMsPtr = gCacheMaxLoadMs;
+    }
+}
+
 // Fetches entry for the specified key into the cache.
 //
 // 0x41F0AC
@@ -415,8 +480,27 @@ static bool cache_add(Cache* cache, int key, int* indexPtr)
                 break;
             }
 
+            if (gCachePerfFrequency == 0) {
+                gCachePerfFrequency = SDL_GetPerformanceFrequency();
+            }
+
+            Uint64 loadStartCounter = 0;
+            if (gCachePerfFrequency != 0) {
+                loadStartCounter = SDL_GetPerformanceCounter();
+            }
+
             if (cache->readProc(key, &size, cacheEntry->data) != 0) {
                 break;
+            }
+
+            if (loadStartCounter != 0) {
+                const Uint64 loadElapsedCounter = SDL_GetPerformanceCounter() - loadStartCounter;
+                const float loadMs = static_cast<float>(loadElapsedCounter * 1000.0 / static_cast<double>(gCachePerfFrequency));
+                gCacheLoadSampleCount++;
+                gCacheTotalLoadMs += loadMs;
+                if (loadMs > gCacheMaxLoadMs) {
+                    gCacheMaxLoadMs = loadMs;
+                }
             }
 
             heap_unlock(&(cache->heap), cacheEntry->heapHandleIndex);
@@ -698,6 +782,7 @@ static bool cache_purge(Cache* cache)
 
                 // NOTE: Uninline.
                 cache_destroy_item(cache, cacheEntry);
+                gCacheEvictionCount++;
 
                 // Move entries up.
                 memmove(&(cache->entries[index]), &(cache->entries[index + 1]), sizeof(*cache->entries) * ((cache->entriesLength - index) - 1));

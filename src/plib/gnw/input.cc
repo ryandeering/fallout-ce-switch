@@ -4,10 +4,8 @@
 #include <stdio.h>
 
 #ifdef __SWITCH__
-#include <switch.h>
 #include <logger.h>
 #include <queue>
-#include <string> // surely we can get rid of this
 #endif
 
 #include "audio_engine.h"
@@ -129,18 +127,22 @@ static bool bk_disabled;
 // 0x671F08
 static unsigned int bk_process_time;
 
+static bool textInputActive = false;
+
 #ifdef __SWITCH__
-    int lastControllerTime = 0;
+int lastControllerTime = 0;
+const int CONTROLLER_R_DEADZONE = 8000;
+static std::queue<SDL_TextInputEvent> textInputQueue;
+bool gInTextInputDialog = false;
+static PadState pad;
 
-    const int CONTROLLER_R_DEADZONE = 8000;
-
-    // int touchMouseDeltaX = 0;
-    // int touchMouseDeltaY = 0;
-    static bool textInputActive = false;
-    static std::string textInputBuffer;
-    static std::queue<SDL_TextInputEvent> textInputQueue;
-
-    PadState pad;
+static void reinitializeSwitchControllerInput()
+{
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+    dxinput_reinitialize_switch_pad();
+    cursorSpeedup = 1.0;
+}
 #endif
 
 
@@ -181,10 +183,9 @@ int GNW_input_init(int use_msec_timer)
 
     set_idle_func(idleImpl);
 
-    #ifdef __SWITCH__
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    padInitializeDefault(&pad);
-    #endif
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+#endif
 
     return 0;
 }
@@ -1105,6 +1106,27 @@ void GNW95_input_exit()
 {
 }
 
+static void handleApplicationActivated()
+{
+    GNW95_isActive = true;
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+#endif
+    GNW95_clear_time_stamps();
+    win_refresh_all(&scr_size);
+    audioEngineResume();
+}
+
+static void handleApplicationDeactivated()
+{
+    GNW95_isActive = false;
+#ifdef __SWITCH__
+    cursorSpeedup = 1.0;
+#endif
+    GNW95_clear_time_stamps();
+    audioEnginePause();
+}
+
 // 0x4B4538
 void GNW95_process_message()
 {
@@ -1144,6 +1166,14 @@ void GNW95_process_message()
             handleTextInputEvent(e.text);
         #endif
             break;
+        case SDL_APP_WILLENTERBACKGROUND:
+        case SDL_APP_DIDENTERBACKGROUND:
+            handleApplicationDeactivated();
+            break;
+        case SDL_APP_WILLENTERFOREGROUND:
+        case SDL_APP_DIDENTERFOREGROUND:
+            handleApplicationActivated();
+            break;
         case SDL_WINDOWEVENT:
             switch (e.window.event) {
             case SDL_WINDOWEVENT_EXPOSED:
@@ -1154,13 +1184,10 @@ void GNW95_process_message()
                 win_refresh_all(&scr_size);
                 break;
             case SDL_WINDOWEVENT_FOCUS_GAINED:
-                GNW95_isActive = true;
-                win_refresh_all(&scr_size);
-                audioEngineResume();
+                handleApplicationActivated();
                 break;
             case SDL_WINDOWEVENT_FOCUS_LOST:
-                GNW95_isActive = false;
-                audioEnginePause();
+                handleApplicationDeactivated();
                 break;
             }
             break;
@@ -1261,6 +1288,11 @@ void GNW95_lost_focus()
         }
     }
 
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+    GNW95_clear_time_stamps();
+#endif
+
     if (focus_func != NULL) {
         focus_func(1);
     }
@@ -1273,20 +1305,99 @@ static void idleImpl()
 
 void beginTextInput() {
     textInputActive = true;
-    textInputBuffer.clear();
-
+#ifdef __SWITCH__
     while (!textInputQueue.empty()) {
         textInputQueue.pop();
     }
-
+#else
     SDL_StartTextInput();
+#endif
 }
 
+#ifdef __SWITCH__
+int showNumericKeyboard(int currentValue, int maxValue) {
+    SwkbdConfig kbd;
+    swkbdCreate(&kbd, 0);
+    swkbdConfigMakePresetDefault(&kbd);
+    swkbdConfigSetType(&kbd, SwkbdType_NumPad);
+    swkbdConfigSetBlurBackground(&kbd, true);
+    swkbdConfigSetStringLenMax(&kbd, 3);  // Max 999
+
+    char initialText[16];
+    snprintf(initialText, sizeof(initialText), "%d", currentValue);
+    swkbdConfigSetInitialText(&kbd, initialText);
+
+    char resultStr[16] = {0};
+    Result rc = swkbdShow(&kbd, resultStr, sizeof(resultStr));
+    swkbdClose(&kbd);
+
+    if (R_SUCCEEDED(rc) && resultStr[0] != '\0') {
+        int result = atoi(resultStr);
+        if (result > maxValue) result = maxValue;
+        if (result < 0) result = 0;
+        return result;
+    }
+    return -1;  // Cancelled
+}
+
+bool showTextKeyboard(const char* initialText, char* outBuffer, int outBufferSize, int maxLen) {
+    if (outBuffer == NULL || outBufferSize <= 0 || maxLen <= 0) {
+        return false;
+    }
+
+    int keyboardMaxLen = maxLen;
+    if (keyboardMaxLen > outBufferSize - 1) {
+        keyboardMaxLen = outBufferSize - 1;
+    }
+    if (keyboardMaxLen > 255) {
+        keyboardMaxLen = 255;
+    }
+
+    SwkbdConfig kbd;
+    swkbdCreate(&kbd, 0);
+    swkbdConfigMakePresetDefault(&kbd);
+    swkbdConfigSetType(&kbd, SwkbdType_Normal);
+    swkbdConfigSetBlurBackground(&kbd, true);
+    swkbdConfigSetStringLenMax(&kbd, keyboardMaxLen);
+
+    if (initialText != NULL && initialText[0] != '\0') {
+        swkbdConfigSetInitialText(&kbd, initialText);
+    }
+
+    char resultStr[256] = {0};
+    Result rc = swkbdShow(&kbd, resultStr, sizeof(resultStr));
+    swkbdClose(&kbd);
+
+    if (R_SUCCEEDED(rc)) {
+        size_t copyLen = strlen(resultStr);
+        if (copyLen > static_cast<size_t>(keyboardMaxLen)) {
+            copyLen = static_cast<size_t>(keyboardMaxLen);
+        }
+        memcpy(outBuffer, resultStr, copyLen);
+        outBuffer[copyLen] = '\0';
+        return true;
+    }
+    return false;  // Cancelled
+}
+
+bool editTextBufferWithKeyboard(char* textBuffer, int textBufferSize, int maxLen) {
+    if (textBuffer == NULL || textBufferSize <= 0 || maxLen <= 0) {
+        return false;
+    }
+
+    textBuffer[textBufferSize - 1] = '\0';
+    return showTextKeyboard(textBuffer[0] != '\0' ? textBuffer : NULL, textBuffer, textBufferSize, maxLen);
+}
+#endif
+
 void endTextInput() {
+#ifndef __SWITCH__
     SDL_StopTextInput();
+#endif
     textInputActive = false;
 }
 
+#ifdef __SWITCH__
 void handleTextInputEvent(const SDL_TextInputEvent& textEvent) {
     textInputQueue.push(textEvent);
 }
@@ -1357,9 +1468,41 @@ void simulateKeyEvent(SDL_Scancode scancode, char ch) {
     }
 }
 
+static void simulateScancodePress(SDL_Scancode scancode)
+{
+    KeyboardData keyboardData;
+    keyboardData.key = scancode;
+    keyboardData.down = true;
+    GNW95_process_key(&keyboardData);
+    keyboardData.down = false;
+    GNW95_process_key(&keyboardData);
+}
+
+static void injectTextAsKeyEvents(const char* text)
+{
+    for (const char* ch = text; *ch != '\0'; ++ch) {
+        SDL_Scancode scancode = mapCharToScancode(*ch);
+        if (scancode == SDL_SCANCODE_UNKNOWN) {
+            continue;
+        }
+
+        simulateKeyEvent(scancode, *ch);
+    }
+}
+
 void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) {
-    
-    // Map Nintendo Switch buttons to game actions
+    bool diagnosticsHudComboPressed = false;
+
+    if (!textInputActive) {
+        diagnosticsHudComboPressed = (kDown & HidNpadButton_StickR) != 0
+            && (kHeld & HidNpadButton_L) != 0
+            && (kHeld & HidNpadButton_R) != 0;
+
+        if (diagnosticsHudComboPressed) {
+            simulateScancodePress(SDL_SCANCODE_F11);
+        }
+    }
+
     if (kDown & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, true);
     if (kUp & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, false);
 
@@ -1381,8 +1524,8 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
     if (kDown & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, true);
     if (kUp & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, false);
 
-    if (kDown & HidNpadButton_StickR) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, true);
-    if (kUp & HidNpadButton_StickR) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, false);
+    if ((kDown & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, true);
+    if ((kUp & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, false);
 
     if (kDown & HidNpadButton_Up) handleControllerButtonEvent(HidControllerButtons::KEY_DPAD_UP, true);
     if (kUp & HidNpadButton_Up) handleControllerButtonEvent(HidControllerButtons::KEY_DPAD_UP, false); 
@@ -1414,86 +1557,142 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
 }
 
 void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
-    if (textInputActive) return;
-    
+    if (textInputActive) {
+        if (button != HidControllerButtons::KEY_LSTICK) {
+            return;
+        }
+
+        if (!pressed) {
+            return;
+        }
+
+        if (!gInTextInputDialog) {
+            char keyboardBuffer[256] = {0};
+            if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), 254)) {
+                injectTextAsKeyEvents(keyboardBuffer);
+            }
+            return;
+        }
+    }
+
     KeyboardData keyboardData;
 
     switch (button) {
     case HidControllerButtons::KEY_A:
-        // start combat
-        keyboardData.key = SDL_SCANCODE_A;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_A;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_B:
-        // end turn
         keyboardData.key = SDL_SCANCODE_SPACE;
         keyboardData.down = pressed ? 1 : 0;
         GNW95_process_key(&keyboardData);
         break;
     case HidControllerButtons::KEY_X:
-        // Skilldex
-        keyboardData.key = SDL_SCANCODE_S;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_S;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_Y:
-        // Inventory
-        keyboardData.key = SDL_SCANCODE_I;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_I;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_PLUS:
-        // Pause menu
-        keyboardData.key = SDL_SCANCODE_ESCAPE;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_ESCAPE;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_MINUS:
-        // Character menu
-        keyboardData.key = SDL_SCANCODE_C;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_C;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_R:
-        // Toggle cursor speedup
         cursorSpeedup = pressed ? 2.0f : 1.0f;
         break;
+    case HidControllerButtons::KEY_L:
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_B;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
+        break;
     case HidControllerButtons::KEY_LSTICK:
-        // Toggle sneak mode
-        keyboardData.key = SDL_SCANCODE_1;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_1;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_RSTICK:
-        // End combat
-        keyboardData.key = SDL_SCANCODE_KP_ENTER;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_KP_ENTER;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_DPAD_UP:
-        // Pipboy 2000
-        keyboardData.key = SDL_SCANCODE_P;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_P;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_DPAD_DOWN:
-        // Center on player character
-        keyboardData.key = SDL_SCANCODE_HOME;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_HOME;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_DPAD_LEFT:
-        // Quick save
-        keyboardData.key = SDL_SCANCODE_F6;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_F6;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     case HidControllerButtons::KEY_DPAD_RIGHT:
-        // Quick load
-        keyboardData.key = SDL_SCANCODE_F7;
-        keyboardData.down = pressed ? 1 : 0;
-        GNW95_process_key(&keyboardData);
+        if (pressed) {
+            keyboardData.key = SDL_SCANCODE_F7;
+            keyboardData.down = 1;
+            GNW95_process_key(&keyboardData);
+            keyboardData.down = 0;
+            GNW95_process_key(&keyboardData);
+        }
         break;
     default:
         break;
@@ -1585,4 +1784,6 @@ void handleControllerAxisEvent(const HidAnalogStickState& rightStick)
         GNW95_process_key(&keyboardData);
     }
 }
+#endif
+
 } // namespace fallout

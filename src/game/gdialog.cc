@@ -3818,6 +3818,25 @@ static void about_loop()
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    gInTextInputDialog = true;
+    flush_input_buffer();
+
+    char kbdBuffer[128] = {0};
+    if (editTextBufferWithKeyboard(kbdBuffer, sizeof(kbdBuffer), 126)) {
+        int len = strlen(kbdBuffer);
+        for (int i = 0; i < len && i < 126; i++) {
+            about_input_string[i] = kbdBuffer[i];
+        }
+        about_input_index = len;
+        about_input_string[about_input_index] = about_input_cursor;
+        about_input_string[about_input_index + 1] = '\0';
+    }
+    text_font(101);
+    about_update_display(1);
+    flush_input_buffer();
+#endif
+
     while (1) {
         sharedFpsLimiter.mark();
 
@@ -3828,6 +3847,10 @@ static void about_loop()
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 
@@ -3845,6 +3868,27 @@ static int about_process_input(int input)
     if (about_win == -1) {
         return -1;
     }
+
+#ifdef __SWITCH__
+    if (input == KEY_1) {
+        char kbdBuffer[128] = {0};
+        strncpy(kbdBuffer, about_input_string, about_input_index);
+        kbdBuffer[about_input_index] = '\0';
+
+        if (editTextBufferWithKeyboard(kbdBuffer, sizeof(kbdBuffer), 126)) {
+            int len = strlen(kbdBuffer);
+            for (int i = 0; i < len && i < 126; i++) {
+                about_input_string[i] = kbdBuffer[i];
+            }
+            about_input_index = len;
+            about_input_string[about_input_index] = about_input_cursor;
+            about_input_string[about_input_index + 1] = '\0';
+        }
+        text_font(101);
+        about_update_display(1);
+        return 0;
+    }
+#endif
 
     switch (input) {
     case KEY_BACKSPACE:
