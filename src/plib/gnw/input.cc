@@ -134,6 +134,7 @@ int lastControllerTime = 0;
 const int CONTROLLER_R_DEADZONE = 8000;
 static std::queue<SDL_TextInputEvent> textInputQueue;
 bool gInTextInputDialog = false;
+static PadState pad;
 #endif
 
 
@@ -173,6 +174,11 @@ int GNW_input_init(int use_msec_timer)
     screendump_key = KEY_ALT_C;
 
     set_idle_func(idleImpl);
+
+    #ifdef __SWITCH__
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+    #endif
 
     return 0;
 }
@@ -1404,8 +1410,65 @@ void simulateKeyEvent(SDL_Scancode scancode, char ch) {
     }
 }
 
+static void simulateScancodePress(SDL_Scancode scancode)
+{
+    KeyboardData keyboardData;
+    keyboardData.key = scancode;
+    keyboardData.down = true;
+    GNW95_process_key(&keyboardData);
+    keyboardData.down = false;
+    GNW95_process_key(&keyboardData);
+}
+
+static void simulateModifiedScancodePress(SDL_Scancode modifier, SDL_Scancode scancode)
+{
+    KeyboardData keyboardData;
+    keyboardData.key = modifier;
+    keyboardData.down = true;
+    GNW95_process_key(&keyboardData);
+
+    simulateScancodePress(scancode);
+
+    keyboardData.key = modifier;
+    keyboardData.down = false;
+    GNW95_process_key(&keyboardData);
+}
+
+static void injectTextAsKeyEvents(const char* text)
+{
+    for (const char* ch = text; *ch != '\0'; ++ch) {
+        SDL_Scancode scancode = mapCharToScancode(*ch);
+        if (scancode == SDL_SCANCODE_UNKNOWN) {
+            continue;
+        }
+
+        simulateKeyEvent(scancode, *ch);
+    }
+}
+
 void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) {
-    
+    bool diagnosticsHudComboPressed = false;
+    bool diagnosticsLogComboPressed = false;
+
+    // L+R+RStick -> F11 (HUD toggle), L+R+LStick -> Ctrl+F11 (log toggle).
+    // We inject keyboard keys so diagnostics handling stays centralized.
+    if (!textInputActive) {
+        diagnosticsHudComboPressed = (kDown & HidNpadButton_StickR) != 0
+            && (kHeld & HidNpadButton_L) != 0
+            && (kHeld & HidNpadButton_R) != 0;
+        diagnosticsLogComboPressed = (kDown & HidNpadButton_StickL) != 0
+            && (kHeld & HidNpadButton_L) != 0
+            && (kHeld & HidNpadButton_R) != 0;
+
+        if (diagnosticsHudComboPressed) {
+            simulateScancodePress(SDL_SCANCODE_F11);
+        }
+
+        if (diagnosticsLogComboPressed) {
+            simulateModifiedScancodePress(SDL_SCANCODE_LCTRL, SDL_SCANCODE_F11);
+        }
+    }
+
     // Map Nintendo Switch buttons to game actions
     if (kDown & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, true);
     if (kUp & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, false);
@@ -1425,11 +1488,11 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
     if (kDown & HidNpadButton_Minus) handleControllerButtonEvent(HidControllerButtons::KEY_MINUS, true);
     if (kUp & HidNpadButton_Minus) handleControllerButtonEvent(HidControllerButtons::KEY_MINUS, false);
 
-    if (kDown & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, true);
-    if (kUp & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, false);
+    if ((kDown & HidNpadButton_StickL) && !diagnosticsLogComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, true);
+    if ((kUp & HidNpadButton_StickL) && !diagnosticsLogComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, false);
 
-    if (kDown & HidNpadButton_StickR) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, true);
-    if (kUp & HidNpadButton_StickR) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, false);
+    if ((kDown & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, true);
+    if ((kUp & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, false);
 
     if (kDown & HidNpadButton_Up) handleControllerButtonEvent(HidControllerButtons::KEY_DPAD_UP, true);
     if (kUp & HidNpadButton_Up) handleControllerButtonEvent(HidControllerButtons::KEY_DPAD_UP, false); 
@@ -1461,9 +1524,23 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
 }
 
 void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
-    // Allow L-stick through when in text input dialog (to open keyboard)
-    if (textInputActive && !(button == HidControllerButtons::KEY_LSTICK && gInTextInputDialog)) {
-        return;
+    if (textInputActive) {
+        if (button != HidControllerButtons::KEY_LSTICK) {
+            return;
+        }
+
+        if (!pressed) {
+            return;
+        }
+
+        // Dialogs with custom KEY_1 behavior handle keyboard themselves.
+        if (!gInTextInputDialog) {
+            char keyboardBuffer[256] = {0};
+            if (showTextKeyboard(NULL, keyboardBuffer, 254)) {
+                injectTextAsKeyEvents(keyboardBuffer);
+            }
+            return;
+        }
     }
 
     KeyboardData keyboardData;

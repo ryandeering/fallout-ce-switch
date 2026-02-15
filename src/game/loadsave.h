@@ -28,10 +28,7 @@ void KillOldMaps();
 int MapDirErase(const char* path, const char* a2);
 int MapDirEraseFile(const char* a1, const char* a2);
 
-#ifdef __SWITCH__
-// Returns the detected offset correction for PC saves with different global var count
 long getGvarOffsetCorrection();
-#endif
 
 } // namespace fallout
 

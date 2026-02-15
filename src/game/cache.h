@@ -86,6 +86,13 @@ int cache_size(Cache* cache, int* sizePtr);
 bool cache_stats(Cache* cache, char* dest, size_t size);
 int cache_create_list(Cache* cache, unsigned int a2, int** tagsPtr, int* tagsLengthPtr);
 int cache_destroy_list(int** tagsPtr);
+void cache_get_diagnostics(unsigned long long* lockHitsPtr,
+    unsigned long long* lockMissesPtr,
+    unsigned long long* evictionsPtr,
+    unsigned long long* flushesPtr,
+    unsigned long long* loadSamplesPtr,
+    float* averageLoadMsPtr,
+    float* maxLoadMsPtr);
 
 } // namespace fallout
 

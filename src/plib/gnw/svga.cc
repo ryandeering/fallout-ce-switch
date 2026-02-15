@@ -1,5 +1,6 @@
 #include "plib/gnw/svga.h"
 
+#include "plib/gnw/diagnostics.h"
 #include "plib/gnw/gnw.h"
 #include "plib/gnw/grbuf.h"
 #include "plib/gnw/mouse.h"
@@ -150,6 +151,7 @@ bool svga_init(VideoOptions* video_options)
 
 void svga_exit()
 {
+    diagnostics_shutdown();
     destroyRenderer();
 
     if (gSdlWindow != NULL) {
@@ -227,6 +229,7 @@ void handleWindowSizeChanged()
 
 void renderPresent()
 {
+    diagnostics_on_present();
     SDL_UpdateTexture(gSdlTexture, NULL, gSdlTextureSurface->pixels, gSdlTextureSurface->pitch);
     SDL_RenderClear(gSdlRenderer);
     SDL_RenderCopy(gSdlRenderer, gSdlTexture, NULL, NULL);

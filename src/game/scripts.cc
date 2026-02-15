@@ -6,9 +6,7 @@
 #include <time.h>
 
 #include "game/actions.h"
-#ifdef __SWITCH__
 #include "game/loadsave.h"
-#endif
 #include "game/automap.h"
 #include "game/combat.h"
 #include "game/critter.h"
@@ -1556,14 +1554,12 @@ int scr_game_load2(DB_FILE* stream)
     int* temp_vars;
     unsigned char temp_water_movie_play_flag;
 
-#ifdef __SWITCH__
     // Apply offset correction if PC save had different num_game_global_vars
     long offset_correction = getGvarOffsetCorrection();
     if (offset_correction != 0) {
         long currentPos = db_ftell(stream);
         db_fseek(stream, currentPos - offset_correction, SEEK_SET);
     }
-#endif
 
     temp_vars = (int*)mem_malloc(sizeof(*temp_vars) * num_game_global_vars);
     if (temp_vars == NULL) {

@@ -195,6 +195,42 @@ void mem_register_func(MallocFunc* mallocFunc, ReallocFunc* reallocFunc, FreeFun
     }
 }
 
+size_t mem_get_allocated()
+{
+    if (p_malloc != my_malloc) {
+        return 0;
+    }
+
+    return mem_allocated;
+}
+
+size_t mem_get_peak_allocated()
+{
+    if (p_malloc != my_malloc) {
+        return 0;
+    }
+
+    return max_allocated;
+}
+
+int mem_get_block_count()
+{
+    if (p_malloc != my_malloc) {
+        return 0;
+    }
+
+    return num_blocks;
+}
+
+int mem_get_peak_block_count()
+{
+    if (p_malloc != my_malloc) {
+        return 0;
+    }
+
+    return max_blocks;
+}
+
 // 0x4AEE24
 static void* mem_prep_block(void* block, size_t size)
 {

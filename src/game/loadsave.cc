@@ -188,11 +188,9 @@ static char* patches = NULL;
 // 0x505974
 static char emgpath[] = "\\FALLOUT\\CD\\DATA\\SAVEGAME";
 
-#ifdef __SWITCH__
-// Offset correction for PC save files with different num_game_global_vars
-// This is detected in SlotMap2Game and applied in scr_game_load2
+// Offset correction for saves with different num_game_global_vars.
+// Detected in SlotMap2Game and applied in scr_game_load2.
 static long gvar_offset_correction = 0;
-#endif
 
 // 0x505990
 static SaveGameHandler* master_save_list[LOAD_SAVE_HANDLER_COUNT] = {
@@ -1600,10 +1598,8 @@ int isLoadingGame()
 // 0x46FCCC
 static int LoadSlot(int slot)
 {
-#ifdef __SWITCH__
     // Reset offset correction before loading new save
     gvar_offset_correction = 0;
-#endif
 
     gmouse_set_cursor(MOUSE_CURSOR_WAIT_PLANET);
 
@@ -2416,7 +2412,19 @@ static int GameMap2Slot(DB_FILE* stream)
 
 // Helper function to check if position looks like start of file list
 // Returns the fileNameListLength if valid, -1 otherwise
-#ifdef __SWITCH__
+static bool isSavFileName(const char* fileName, int nameLen)
+{
+    if (nameLen < 5) {
+        return false;
+    }
+
+    const char* ext = fileName + nameLen - 4;
+    return ext[0] == '.'
+        && (ext[1] == 'S' || ext[1] == 's')
+        && (ext[2] == 'A' || ext[2] == 'a')
+        && (ext[3] == 'V' || ext[3] == 'v');
+}
+
 static int checkFileListPosition(DB_FILE* stream, long pos)
 {
     db_fseek(stream, pos, SEEK_SET);
@@ -2431,37 +2439,36 @@ static int checkFileListPosition(DB_FILE* stream, long pos)
         return -1;
     }
 
-    // Read first filename and check if it ends with .SAV
-    char testName[64];
-    int nameLen = 0;
-    for (int i = 0; i < 63; i++) {
-        unsigned char c;
-        if (db_freadByte(stream, &c) == -1) {
+    // Validate all file names from list. SlotMap2Game/mygets treats names as
+    // short null-terminated strings with a max stored length of 15 bytes.
+    for (int index = 0; index < count; index++) {
+        char testName[16];
+        int nameLen = -1;
+
+        for (int i = 0; i < 15; i++) {
+            unsigned char c;
+            if (db_freadByte(stream, &c) == -1) {
+                return -1;
+            }
+
+            testName[i] = (char)c;
+            if (c == 0) {
+                nameLen = i;
+                break;
+            }
+        }
+
+        if (nameLen == -1) {
             return -1;
         }
-        testName[i] = (char)c;
-        if (c == 0) {
-            nameLen = i;
-            break;
+
+        if (!isSavFileName(testName, nameLen)) {
+            return -1;
         }
     }
 
-    if (nameLen < 5) {
-        return -1;
-    }
-
-    // Check for .SAV extension (case insensitive)
-    const char* ext = testName + nameLen - 4;
-    if (ext[0] == '.' &&
-        (ext[1] == 'S' || ext[1] == 's') &&
-        (ext[2] == 'A' || ext[2] == 'a') &&
-        (ext[3] == 'V' || ext[3] == 'v')) {
-        return count;
-    }
-
-    return -1;
+    return count;
 }
-#endif
 
 // 0x4717E0
 static int SlotMap2Game(DB_FILE* stream)
@@ -2473,15 +2480,17 @@ static int SlotMap2Game(DB_FILE* stream)
         return -1;
     }
 
-#ifdef __SWITCH__
-    // Sanity check - valid saves typically have 1-50 map files
-    // If invalid, scan backwards to find correct position (PC save compatibility)
-    if (fileNameListLength < 1 || fileNameListLength > 100) {
-        long foundPos = -1;
+    long foundPos = -1;
 
-        for (long offset = 4; offset <= 2000; offset += 4) {
+    // Validate the expected location first. If invalid, scan backwards to find
+    // the real list position (compat with saves that have gvar count drift).
+    if (checkFileListPosition(stream, startPos) > 0) {
+        foundPos = startPos;
+    } else {
+        long maxScanOffset = std::min<long>(startPos, 32768);
+        for (long offset = 4; offset <= maxScanOffset; offset += 4) {
             long testPos = startPos - offset;
-            if (testPos < 30055) break;
+            if (testPos < 0) break;
 
             int result = checkFileListPosition(stream, testPos);
             if (result > 0) {
@@ -2489,20 +2498,17 @@ static int SlotMap2Game(DB_FILE* stream)
                 break;
             }
         }
+    }
 
-        if (foundPos > 0) {
-            gvar_offset_correction = startPos - foundPos;
-            db_fseek(stream, foundPos, SEEK_SET);
-            if (db_freadInt(stream, &fileNameListLength) == -1) {
-                return -1;
-            }
-        } else {
+    if (foundPos >= 0) {
+        gvar_offset_correction = startPos - foundPos;
+        db_fseek(stream, foundPos, SEEK_SET);
+        if (db_freadInt(stream, &fileNameListLength) == -1) {
             return -1;
         }
     } else {
-        gvar_offset_correction = 0;
+        return -1;
     }
-#endif
 
     if (fileNameListLength == 0) {
         return -1;
@@ -2521,6 +2527,7 @@ static int SlotMap2Game(DB_FILE* stream)
     struct FileData {
         char srcPath[COMPAT_MAX_PATH];
         char dstPath[COMPAT_MAX_PATH];
+        char fileName[COMPAT_MAX_PATH];
         void* data;
         size_t size;
     };
@@ -2543,6 +2550,7 @@ static int SlotMap2Game(DB_FILE* stream)
                  patches, "SAVEGAME", slot_cursor + 1, fileName);
         snprintf(files[fileCount].dstPath, COMPAT_MAX_PATH, "%s/%s/%s",
                  patches, "MAPS", fileName);
+        snprintf(files[fileCount].fileName, COMPAT_MAX_PATH, "%s", fileName);
 
         for (char* p = files[fileCount].srcPath; *p; p++) if (*p == '\\') *p = '/';
         for (char* p = files[fileCount].dstPath; *p; p++) if (*p == '\\') *p = '/';
@@ -2557,7 +2565,16 @@ static int SlotMap2Game(DB_FILE* stream)
         }
 
         fseek(f, 0, SEEK_END);
-        files[fileCount].size = ftell(f);
+        long fileSize = ftell(f);
+        if (fileSize < 0) {
+            fclose(f);
+            for (int j = 0; j < fileCount; j++) {
+                if (files[j].data) mem_free(files[j].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+        files[fileCount].size = static_cast<size_t>(fileSize);
         fseek(f, 0, SEEK_SET);
 
         files[fileCount].data = mem_malloc(files[fileCount].size);
@@ -2589,6 +2606,7 @@ static int SlotMap2Game(DB_FILE* stream)
              patches, "SAVEGAME", slot_cursor + 1, automapFileName);
     snprintf(files[fileCount].dstPath, COMPAT_MAX_PATH, "%s/%s/%s",
              patches, "MAPS", "AUTOMAP.DB");
+    snprintf(files[fileCount].fileName, COMPAT_MAX_PATH, "%s", "AUTOMAP.DB");
 
     for (char* p = files[fileCount].srcPath; *p; p++) if (*p == '\\') *p = '/';
     for (char* p = files[fileCount].dstPath; *p; p++) if (*p == '\\') *p = '/';
@@ -2596,7 +2614,16 @@ static int SlotMap2Game(DB_FILE* stream)
     FILE* f = fopen(files[fileCount].srcPath, "rb");
     if (f != NULL) {
         fseek(f, 0, SEEK_END);
-        files[fileCount].size = ftell(f);
+        long fileSize = ftell(f);
+        if (fileSize < 0) {
+            fclose(f);
+            for (int i = 0; i < fileCount; i++) {
+                if (files[i].data) mem_free(files[i].data);
+            }
+            mem_free(files);
+            return -1;
+        }
+        files[fileCount].size = static_cast<size_t>(fileSize);
         fseek(f, 0, SEEK_SET);
 
         files[fileCount].data = mem_malloc(files[fileCount].size);
@@ -2623,6 +2650,9 @@ static int SlotMap2Game(DB_FILE* stream)
         fclose(out);
         if (bytesWritten != files[i].size) {
             writeErrors++;
+        } else {
+            // Keep db_fopen(hash-enabled) reads working after raw stdio writes.
+            db_add_hash_entry(files[i].fileName, '/');
         }
     }
 
@@ -3034,12 +3064,9 @@ static int EraseSave()
     return 0;
 }
 
-#ifdef __SWITCH__
-// Returns the detected offset correction for PC saves with different global var count
 long getGvarOffsetCorrection()
 {
     return gvar_offset_correction;
 }
-#endif
 
 } // namespace fallout

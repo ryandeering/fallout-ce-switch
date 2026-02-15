@@ -15,6 +15,10 @@ void* mem_realloc(void* ptr, size_t size);
 void mem_free(void* ptr);
 void mem_check();
 void mem_register_func(MallocFunc* mallocFunc, ReallocFunc* reallocFunc, FreeFunc* freeFunc);
+size_t mem_get_allocated();
+size_t mem_get_peak_allocated();
+int mem_get_block_count();
+int mem_get_peak_block_count();
 
 } // namespace fallout
 

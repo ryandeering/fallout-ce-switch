@@ -244,6 +244,8 @@ if(NX)
     "src/plib/gnw/button.h"
     "src/plib/gnw/debug.cc"
     "src/plib/gnw/debug.h"
+    "src/plib/gnw/diagnostics.cc"
+    "src/plib/gnw/diagnostics.h"
     "src/plib/gnw/dxinput.cc"
     "src/plib/gnw/dxinput.h"
     "src/plib/gnw/grbuf.cc"

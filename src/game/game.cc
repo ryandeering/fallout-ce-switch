@@ -51,6 +51,7 @@
 #include "platform_compat.h"
 #include "plib/color/color.h"
 #include "plib/gnw/debug.h"
+#include "plib/gnw/diagnostics.h"
 #include "plib/gnw/gnw.h"
 #include "plib/gnw/grbuf.h"
 #include "plib/gnw/input.h"
@@ -129,11 +130,15 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
 {
     char path[COMPAT_MAX_PATH];
 
+    diagnostics_begin_load_profile("game_init");
+
     if (gmemory_init() == -1) {
         return -1;
     }
+    diagnostics_mark_load_phase("gmemory_init");
 
     gconfig_init(isMapper, argc, argv);
+    diagnostics_mark_load_phase("gconfig_init");
 
     game_in_mapper = isMapper;
 
@@ -141,6 +146,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
         gconfig_exit(false);
         return -1;
     }
+    diagnostics_mark_load_phase("game_init_databases");
 
     win_set_minimized_title(windowTitle);
 
@@ -174,12 +180,16 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
         if (config_load(&resolutionConfig, "fallout1_nx.ini", false)) {
             int screenWidth;
             if (config_get_value(&resolutionConfig, "MAIN", "SCR_WIDTH", &screenWidth)) {
-                video_options.width = screenWidth;
+                if (screenWidth > 0) {
+                    video_options.width = screenWidth;
+                }
             }
 
             int screenHeight;
             if (config_get_value(&resolutionConfig, "MAIN", "SCR_HEIGHT", &screenHeight)) {
-                video_options.height = screenHeight;
+                if (screenHeight > 0) {
+                    video_options.height = screenHeight;
+                }
             }
 
             int scale2x;
@@ -191,6 +201,9 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
         }
         config_exit(&resolutionConfig);
     }
+
+    video_options.width = std::max(video_options.width, 320);
+    video_options.height = std::max(video_options.height, 240);
 #else
     video_options.width = 640;
     video_options.height = 480;
@@ -228,14 +241,17 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
 
     initWindow(&video_options, flags);
     palette_init();
+    diagnostics_mark_load_phase("video_init");
 
     if (!game_in_mapper) {
         game_splash_screen();
+        diagnostics_mark_load_phase("game_splash_screen");
     }
 
     FMInit();
     text_add_manager(&alias_mgr);
     text_font(font);
+    diagnostics_mark_load_phase("font_init");
 
     register_screendump(KEY_F12, game_screendump);
     register_pause(-1, NULL);
@@ -263,9 +279,11 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">gsound_init\t");
+    diagnostics_mark_load_phase("gsound_init");
 
     initMovie();
     debug_printf(">initMovie\t\t");
+    diagnostics_mark_load_phase("initMovie");
 
     if (gmovie_init() != 0) {
         debug_printf("Failed on gmovie_init\n");
@@ -273,6 +291,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">gmovie_init\t");
+    diagnostics_mark_load_phase("gmovie_init");
 
     if (moviefx_init() != 0) {
         debug_printf("Failed on moviefx_init\n");
@@ -280,6 +299,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">moviefx_init\t");
+    diagnostics_mark_load_phase("moviefx_init");
 
     if (iso_init() != 0) {
         debug_printf("Failed on iso_init\n");
@@ -287,6 +307,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">iso_init\t");
+    diagnostics_mark_load_phase("iso_init");
 
     if (gmouse_init() != 0) {
         debug_printf("Failed on gmouse_init\n");
@@ -294,6 +315,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">gmouse_init\t");
+    diagnostics_mark_load_phase("gmouse_init");
 
     if (proto_init() != 0) {
         debug_printf("Failed on proto_init\n");
@@ -301,9 +323,11 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">proto_init\t");
+    diagnostics_mark_load_phase("proto_init");
 
     anim_init();
     debug_printf(">anim_init\t");
+    diagnostics_mark_load_phase("anim_init");
 
     if (scr_init() != 0) {
         debug_printf("Failed on scr_init\n");
@@ -311,6 +335,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">scr_init\t");
+    diagnostics_mark_load_phase("scr_init");
 
     if (game_load_info() != 0) {
         debug_printf("Failed on game_load_info\n");
@@ -318,6 +343,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">game_load_info\t");
+    diagnostics_mark_load_phase("game_load_info");
 
     if (scr_game_init() != 0) {
         debug_printf("Failed on scr_game_init\n");
@@ -325,6 +351,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">scr_game_init\t");
+    diagnostics_mark_load_phase("scr_game_init");
 
     if (init_world_map() != 0) {
         debug_printf("Failed on init_world_map\n");
@@ -332,15 +359,19 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">init_world_map\t");
+    diagnostics_mark_load_phase("init_world_map");
 
     CharEditInit();
     debug_printf(">CharEditInit\t");
+    diagnostics_mark_load_phase("CharEditInit");
 
     pip_init();
     debug_printf(">pip_init\t\t");
+    diagnostics_mark_load_phase("pip_init");
 
     InitLoadSave();
     debug_printf(">InitLoadSave\t");
+    diagnostics_mark_load_phase("InitLoadSave");
 
     if (gdialog_init() != 0) {
         debug_printf("Failed on gdialog_init\n");
@@ -348,6 +379,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">gdialog_init\t");
+    diagnostics_mark_load_phase("gdialog_init");
 
     if (combat_init() != 0) {
         debug_printf("Failed on combat_init\n");
@@ -355,6 +387,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">combat_init\t");
+    diagnostics_mark_load_phase("combat_init");
 
     if (automap_init() != 0) {
         debug_printf("Failed on automap_init\n");
@@ -362,6 +395,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">automap_init\t");
+    diagnostics_mark_load_phase("automap_init");
 
     if (!message_init(&misc_message_file)) {
         debug_printf("Failed on message_init\n");
@@ -369,6 +403,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">message_init\t");
+    diagnostics_mark_load_phase("message_init");
 
     snprintf(path, sizeof(path), "%s%s", msg_path, "misc.msg");
 
@@ -378,6 +413,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">message_load\t");
+    diagnostics_mark_load_phase("message_load");
 
     if (scr_disable() != 0) {
         debug_printf("Failed on scr_disable\n");
@@ -385,6 +421,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">scr_disable\t");
+    diagnostics_mark_load_phase("scr_disable");
 
     if (init_options_menu() != 0) {
         debug_printf("Failed on init_options_menu\n");
@@ -392,11 +429,13 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     }
 
     debug_printf(">init_options_menu\n");
+    diagnostics_mark_load_phase("init_options_menu");
 
 #ifdef __SWITCH__
     // Pre-cache common art assets to reduce load times during gameplay
     art_precache_common();
     debug_printf(">art_precache_common\n");
+    diagnostics_mark_load_phase("art_precache_common");
 #endif
 
     return 0;
@@ -577,6 +616,12 @@ int game_handle_input(int eventCode, bool isInCombatMode)
     case KEY_F10:
         gsound_play_sfx_file("ib1p1xx1");
         game_quit_with_confirm();
+        break;
+    case KEY_F11:
+        diagnostics_toggle_hud();
+        break;
+    case KEY_CTRL_F11:
+        diagnostics_toggle_log();
         break;
     case KEY_TAB:
         if (intface_is_enabled()

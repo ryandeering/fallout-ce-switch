@@ -15,7 +15,7 @@ static int gMouseWheelDeltaY = 0;
 
 #ifdef __SWITCH__
 static const int JOYSTICK_DEAD_ZONE = 8000;
-PadState pad;
+static PadState pad;
 double cursorSpeedup = 1.0;
 #endif
 

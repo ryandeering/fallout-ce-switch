@@ -8,7 +8,6 @@ namespace fallout {
 #ifdef __SWITCH__
 #include <switch.h>
 extern double cursorSpeedup;
-extern PadState pad;
 #endif
 
 typedef struct MouseData {

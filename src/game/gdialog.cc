@@ -3837,11 +3837,8 @@ static void about_loop()
         about_input_string[about_input_index] = about_input_cursor;
         about_input_string[about_input_index + 1] = '\0';
     }
-    // Redraw with correct font
-    int savedFont = text_curr();
     text_font(101);
     about_update_display(1);
-    text_font(savedFont);
     flush_input_buffer();
 #endif
 
@@ -3894,11 +3891,9 @@ static int about_process_input(int input)
             about_input_string[about_input_index] = about_input_cursor;
             about_input_string[about_input_index + 1] = '\0';
         }
-        // Redraw with correct font
-        int savedFont = text_curr();
+        // Keep dialog text rendering on font 101 after keyboard closes.
         text_font(101);
         about_update_display(1);
-        text_font(savedFont);
         return 0;
     }
 #endif
