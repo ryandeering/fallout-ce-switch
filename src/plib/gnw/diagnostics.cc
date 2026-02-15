@@ -142,15 +142,14 @@ namespace {
 
     static void logModeState()
     {
-        printf("[diag] mode hud=%s log=%s\n",
-            (gDiagnosticsMode & DIAGNOSTICS_MODE_HUD) != 0 ? "on" : "off",
-            (gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) != 0 ? "on" : "off");
+        printf("[diag] mode hud=%s\n",
+            (gDiagnosticsMode & DIAGNOSTICS_MODE_HUD) != 0 ? "on" : "off");
         fflush(stdout);
     }
 
     static int applyModeConstraints(int mode)
     {
-        int constrainedMode = mode & (DIAGNOSTICS_MODE_HUD | DIAGNOSTICS_MODE_LOG);
+        int constrainedMode = mode & DIAGNOSTICS_MODE_HUD;
         if (kForceHudAlwaysOn) {
             constrainedMode |= DIAGNOSTICS_MODE_HUD;
         }
@@ -343,46 +342,6 @@ namespace {
 
     static void emitPeriodicLog(Uint64 now)
     {
-        if ((gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) == 0) {
-            gLastLogCounter = now;
-            return;
-        }
-
-        if (gLastLogCounter == 0) {
-            gLastLogCounter = now;
-            return;
-        }
-
-        if (now - gLastLogCounter < gPerformanceFrequency) {
-            return;
-        }
-
-        const double memMiB = static_cast<double>(mem_get_allocated()) / (1024.0 * 1024.0);
-        const double peakMiB = static_cast<double>(mem_get_peak_allocated()) / (1024.0 * 1024.0);
-
-        printf("[diag] fps=%.1f frame=%.2fms p95=%.2f p99=%.2f worst10s=%.2f h33=%llu h50=%llu\n",
-            gSmoothedFps,
-            gFrameTimeMs,
-            gFrameP95Ms,
-            gFrameP99Ms,
-            gWorstFrame10sMs,
-            gHitchOver33Count,
-            gHitchOver50Count);
-        printf("[diag] cache=%.1f%% load=%.2f/%.2fms io=%.0fKiB/s max=%.1fms mem=%.1f/%.1fMiB\n",
-            gCacheHitRate,
-            gCacheAverageLoadMs,
-            gCacheMaxLoadMs,
-            gIoReadKiBPerSec,
-            gIoSlowestReadMs,
-            memMiB,
-            peakMiB);
-
-        if (gLoadPhaseCount > 0) {
-            const LoadPhase& phase = gLoadPhases[gLoadPhaseCount - 1];
-            printf("[diag] load=%s@%.1fms\n", phase.name, phase.elapsedMs);
-        }
-
-        fflush(stdout);
         gLastLogCounter = now;
     }
 
@@ -539,10 +498,7 @@ namespace {
         const float perfMemMiBDisplay = static_cast<float>(round(gHudPerfMemMiB * 10.0f) / 10.0f);
         const float perfPeakMemMiBDisplay = static_cast<float>(round(gHudPerfPeakMemMiB * 10.0f) / 10.0f);
 
-        snprintf(headerLine,
-            sizeof(headerLine),
-            "LOG %s",
-            (gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) != 0 ? "ON" : "OFF");
+        headerLine[0] = '\0';
         snprintf(perfLine, sizeof(perfLine), "FPS %5.1f (%5.2f ms)  Mem %6.1f/%6.1f MiB", perfFpsDisplay, perfFrameMsDisplay, perfMemMiBDisplay, perfPeakMemMiBDisplay);
         snprintf(pacingLine, sizeof(pacingLine), "Pace p50/p95/p99 %.2f/%.2f/%.2f ms  worst10 %.2f", gFrameP50Ms, gFrameP95Ms, gFrameP99Ms, gWorstFrame10sMs);
         snprintf(hitchLine, sizeof(hitchLine), "Hitches >33ms %llu  >50ms %llu", gHitchOver33Count, gHitchOver50Count);
@@ -582,6 +538,10 @@ namespace {
             perfTextColor = badTextColor;
         } else if (gFrameP95Ms > 20.0f || gWorstFrame10sMs > 33.0f) {
             perfTextColor = warnTextColor;
+        }
+
+        if (perfTextColor == goodTextColor) {
+            snprintf(headerLine, sizeof(headerLine), "AGME");
         }
 
         int pacingTextColor = goodTextColor;
@@ -675,7 +635,7 @@ namespace {
             unsigned char* headerDst = static_cast<unsigned char*>(gSdlSurface->pixels)
                 + (headerY + kHudHeaderVerticalPadding) * gSdlSurface->pitch
                 + (kHudX + kHudPadding);
-            text_to_buf(headerDst, headerLine, width - kHudPadding * 2, gSdlSurface->pitch, accentTextColor);
+            text_to_buf(headerDst, headerLine, width - kHudPadding * 2, gSdlSurface->pitch, goodTextColor);
         }
 
         const int textX = kHudX + kHudPadding;
@@ -762,19 +722,9 @@ bool diagnostics_is_hud_enabled()
     return (gDiagnosticsMode & DIAGNOSTICS_MODE_HUD) != 0;
 }
 
-bool diagnostics_is_log_enabled()
-{
-    return (gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) != 0;
-}
-
 void diagnostics_toggle_hud()
 {
     diagnostics_set_mode(gDiagnosticsMode ^ DIAGNOSTICS_MODE_HUD);
-}
-
-void diagnostics_toggle_log()
-{
-    diagnostics_set_mode(gDiagnosticsMode ^ DIAGNOSTICS_MODE_LOG);
 }
 
 void diagnostics_begin_load_profile(const char* name)
@@ -792,10 +742,6 @@ void diagnostics_begin_load_profile(const char* name)
         gLoadProfileName[sizeof(gLoadProfileName) - 1] = '\0';
     }
 
-    if ((gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) != 0) {
-        printf("[diag][load] begin %s\n", gLoadProfileName);
-        fflush(stdout);
-    }
 }
 
 void diagnostics_mark_load_phase(const char* phaseName)
@@ -824,10 +770,6 @@ void diagnostics_mark_load_phase(const char* phaseName)
     snprintf(phase.name, sizeof(phase.name), "%s", sanitizedName);
     phase.elapsedMs = elapsedMs;
 
-    if ((gDiagnosticsMode & DIAGNOSTICS_MODE_LOG) != 0) {
-        printf("[diag][load] %s @ %.1fms\n", phase.name, phase.elapsedMs);
-        fflush(stdout);
-    }
 }
 
 void diagnostics_on_present()

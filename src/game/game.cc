@@ -618,9 +618,9 @@ int game_handle_input(int eventCode, bool isInCombatMode)
     case KEY_F11:
         diagnostics_toggle_hud();
         break;
-    case KEY_CTRL_F11:
-        diagnostics_toggle_log();
-        break;
+    //case KEY_CTRL_F11:
+    //    diagnostics_toggle_log();
+    //    break;
     case KEY_TAB:
         if (intface_is_enabled()
             && keys[SDL_SCANCODE_LALT] == 0

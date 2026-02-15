@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
     int rc;
 
 #ifdef __SWITCH__
-    Logger::getInstance().redirectStdio();
+    //Logger::getInstance().redirectStdio();
 #endif
 
 #if _WIN32

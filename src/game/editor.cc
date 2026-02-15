@@ -1474,6 +1474,44 @@ int get_input_str(int win, int cancelKeyCode, char* text, int maxLength, int x, 
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    gInTextInputDialog = true;
+
+    auto promptKeyboardTextInput = [&]() {
+        char keyboardBuffer[257];
+        memcpy(keyboardBuffer, copy, nameLength);
+        keyboardBuffer[nameLength] = '\0';
+
+        if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), maxLength)) {
+            int previousNameWidth = nameWidth;
+
+            int keyboardLength = strlen(keyboardBuffer);
+            if (keyboardLength > maxLength) {
+                keyboardLength = maxLength;
+            }
+
+            memcpy(copy, keyboardBuffer, keyboardLength);
+            nameLength = keyboardLength;
+            copy[nameLength] = ' ';
+            copy[nameLength + 1] = '\0';
+
+            nameWidth = text_width(copy);
+            int clearWidth = previousNameWidth;
+            if (nameWidth > clearWidth) {
+                clearWidth = nameWidth;
+            }
+
+            buf_fill(windowBuffer + windowWidth * y + x, clearWidth, v60, windowWidth, backgroundColor);
+            text_to_buf(windowBuffer + windowWidth * y + x, copy, windowWidth, windowWidth, textColor);
+            win_draw(win);
+        }
+
+        flush_input_buffer();
+    };
+
+    promptKeyboardTextInput();
+#endif
+
     int blinkingCounter = 3;
     bool blink = false;
 
@@ -1484,6 +1522,13 @@ int get_input_str(int win, int cancelKeyCode, char* text, int maxLength, int x, 
         frame_time = get_time();
 
         int keyCode = get_input();
+#ifdef __SWITCH__
+        if (keyCode == KEY_1) {
+            promptKeyboardTextInput();
+            continue;
+        }
+#endif
+
         if (keyCode == cancelKeyCode) {
             rc = 0;
         } else if (keyCode == KEY_RETURN) {
@@ -1536,6 +1581,10 @@ int get_input_str(int win, int cancelKeyCode, char* text, int maxLength, int x, 
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 

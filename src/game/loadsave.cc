@@ -2208,6 +2208,43 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
 
     beginTextInput();
 
+#ifdef __SWITCH__
+    gInTextInputDialog = true;
+
+    auto promptKeyboardTextInput = [&]() {
+        char keyboardBuffer[256];
+        memcpy(keyboardBuffer, text, textLength);
+        keyboardBuffer[textLength] = '\0';
+
+        if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), maxLength)) {
+            int previousNameWidth = nameWidth;
+
+            int keyboardLength = strlen(keyboardBuffer);
+            if (keyboardLength > maxLength) {
+                keyboardLength = maxLength;
+            }
+
+            memcpy(text, keyboardBuffer, keyboardLength);
+            textLength = keyboardLength;
+            text[textLength] = ' ';
+            text[textLength + 1] = '\0';
+
+            nameWidth = text_width(text);
+            int clearWidth = previousNameWidth;
+            if (nameWidth > clearWidth) {
+                clearWidth = nameWidth;
+            }
+
+            buf_fill(windowBuffer + windowWidth * y + x, clearWidth, lineHeight, windowWidth, backgroundColor);
+            text_to_buf(windowBuffer + windowWidth * y + x, text, windowWidth, windowWidth, textColor);
+            win_draw(win);
+        }
+
+        flush_input_buffer();
+    };
+
+#endif
+
     int blinkCounter = 3;
     bool blink = false;
 
@@ -2223,6 +2260,13 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
         if ((keyCode & 0x80000000) == 0) {
             v1++;
         }
+
+#ifdef __SWITCH__
+        if (keyCode == KEY_1) {
+            promptKeyboardTextInput();
+            continue;
+        }
+#endif
 
         if (keyCode == doneKeyCode || keyCode == KEY_RETURN) {
             rc = 0;
@@ -2276,6 +2320,10 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
         renderPresent();
         sharedFpsLimiter.throttle();
     }
+
+#ifdef __SWITCH__
+    gInTextInputDialog = false;
+#endif
 
     endTextInput();
 

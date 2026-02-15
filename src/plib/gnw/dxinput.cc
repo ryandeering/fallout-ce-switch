@@ -17,6 +17,12 @@ static int gMouseWheelDeltaY = 0;
 static const int JOYSTICK_DEAD_ZONE = 8000;
 static PadState pad;
 double cursorSpeedup = 1.0;
+
+void dxinput_reinitialize_switch_pad()
+{
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+}
 #endif
 
 // 0x4E0400
@@ -34,10 +40,9 @@ bool dxinput_init()
         goto err;
     }
 
-    #ifdef __SWITCH__
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    padInitializeDefault(&pad);
-    #endif
+#ifdef __SWITCH__
+    dxinput_reinitialize_switch_pad();
+#endif
     return true;
 
 err:

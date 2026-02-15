@@ -135,6 +135,14 @@ const int CONTROLLER_R_DEADZONE = 8000;
 static std::queue<SDL_TextInputEvent> textInputQueue;
 bool gInTextInputDialog = false;
 static PadState pad;
+
+static void reinitializeSwitchControllerInput()
+{
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+    dxinput_reinitialize_switch_pad();
+    cursorSpeedup = 1.0;
+}
 #endif
 
 
@@ -175,10 +183,9 @@ int GNW_input_init(int use_msec_timer)
 
     set_idle_func(idleImpl);
 
-    #ifdef __SWITCH__
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    padInitializeDefault(&pad);
-    #endif
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+#endif
 
     return 0;
 }
@@ -1099,6 +1106,27 @@ void GNW95_input_exit()
 {
 }
 
+static void handleApplicationActivated()
+{
+    GNW95_isActive = true;
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+#endif
+    GNW95_clear_time_stamps();
+    win_refresh_all(&scr_size);
+    audioEngineResume();
+}
+
+static void handleApplicationDeactivated()
+{
+    GNW95_isActive = false;
+#ifdef __SWITCH__
+    cursorSpeedup = 1.0;
+#endif
+    GNW95_clear_time_stamps();
+    audioEnginePause();
+}
+
 // 0x4B4538
 void GNW95_process_message()
 {
@@ -1138,6 +1166,14 @@ void GNW95_process_message()
             handleTextInputEvent(e.text);
         #endif
             break;
+        case SDL_APP_WILLENTERBACKGROUND:
+        case SDL_APP_DIDENTERBACKGROUND:
+            handleApplicationDeactivated();
+            break;
+        case SDL_APP_WILLENTERFOREGROUND:
+        case SDL_APP_DIDENTERFOREGROUND:
+            handleApplicationActivated();
+            break;
         case SDL_WINDOWEVENT:
             switch (e.window.event) {
             case SDL_WINDOWEVENT_EXPOSED:
@@ -1148,13 +1184,10 @@ void GNW95_process_message()
                 win_refresh_all(&scr_size);
                 break;
             case SDL_WINDOWEVENT_FOCUS_GAINED:
-                GNW95_isActive = true;
-                win_refresh_all(&scr_size);
-                audioEngineResume();
+                handleApplicationActivated();
                 break;
             case SDL_WINDOWEVENT_FOCUS_LOST:
-                GNW95_isActive = false;
-                audioEnginePause();
+                handleApplicationDeactivated();
                 break;
             }
             break;
@@ -1255,6 +1288,11 @@ void GNW95_lost_focus()
         }
     }
 
+#ifdef __SWITCH__
+    reinitializeSwitchControllerInput();
+    GNW95_clear_time_stamps();
+#endif
+
     if (focus_func != NULL) {
         focus_func(1);
     }
@@ -1340,6 +1378,15 @@ bool showTextKeyboard(const char* initialText, char* outBuffer, int outBufferSiz
         return true;
     }
     return false;  // Cancelled
+}
+
+bool editTextBufferWithKeyboard(char* textBuffer, int textBufferSize, int maxLen) {
+    if (textBuffer == NULL || textBufferSize <= 0 || maxLen <= 0) {
+        return false;
+    }
+
+    textBuffer[textBufferSize - 1] = '\0';
+    return showTextKeyboard(textBuffer[0] != '\0' ? textBuffer : NULL, textBuffer, textBufferSize, maxLen);
 }
 #endif
 
@@ -1431,20 +1478,6 @@ static void simulateScancodePress(SDL_Scancode scancode)
     GNW95_process_key(&keyboardData);
 }
 
-static void simulateModifiedScancodePress(SDL_Scancode modifier, SDL_Scancode scancode)
-{
-    KeyboardData keyboardData;
-    keyboardData.key = modifier;
-    keyboardData.down = true;
-    GNW95_process_key(&keyboardData);
-
-    simulateScancodePress(scancode);
-
-    keyboardData.key = modifier;
-    keyboardData.down = false;
-    GNW95_process_key(&keyboardData);
-}
-
 static void injectTextAsKeyEvents(const char* text)
 {
     for (const char* ch = text; *ch != '\0'; ++ch) {
@@ -1459,22 +1492,14 @@ static void injectTextAsKeyEvents(const char* text)
 
 void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) {
     bool diagnosticsHudComboPressed = false;
-    bool diagnosticsLogComboPressed = false;
 
     if (!textInputActive) {
         diagnosticsHudComboPressed = (kDown & HidNpadButton_StickR) != 0
             && (kHeld & HidNpadButton_L) != 0
             && (kHeld & HidNpadButton_R) != 0;
-        diagnosticsLogComboPressed = (kDown & HidNpadButton_StickL) != 0
-            && (kHeld & HidNpadButton_L) != 0
-            && (kHeld & HidNpadButton_R) != 0;
 
         if (diagnosticsHudComboPressed) {
             simulateScancodePress(SDL_SCANCODE_F11);
-        }
-
-        if (diagnosticsLogComboPressed) {
-            simulateModifiedScancodePress(SDL_SCANCODE_LCTRL, SDL_SCANCODE_F11);
         }
     }
 
@@ -1496,8 +1521,8 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
     if (kDown & HidNpadButton_Minus) handleControllerButtonEvent(HidControllerButtons::KEY_MINUS, true);
     if (kUp & HidNpadButton_Minus) handleControllerButtonEvent(HidControllerButtons::KEY_MINUS, false);
 
-    if ((kDown & HidNpadButton_StickL) && !diagnosticsLogComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, true);
-    if ((kUp & HidNpadButton_StickL) && !diagnosticsLogComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, false);
+    if (kDown & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, true);
+    if (kUp & HidNpadButton_StickL) handleControllerButtonEvent(HidControllerButtons::KEY_LSTICK, false);
 
     if ((kDown & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, true);
     if ((kUp & HidNpadButton_StickR) && !diagnosticsHudComboPressed) handleControllerButtonEvent(HidControllerButtons::KEY_RSTICK, false);
@@ -1543,7 +1568,7 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
 
         if (!gInTextInputDialog) {
             char keyboardBuffer[256] = {0};
-            if (showTextKeyboard(NULL, keyboardBuffer, sizeof(keyboardBuffer), 254)) {
+            if (editTextBufferWithKeyboard(keyboardBuffer, sizeof(keyboardBuffer), 254)) {
                 injectTextAsKeyEvents(keyboardBuffer);
             }
             return;

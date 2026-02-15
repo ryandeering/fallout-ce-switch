@@ -3823,7 +3823,7 @@ static void about_loop()
     flush_input_buffer();
 
     char kbdBuffer[128] = {0};
-    if (showTextKeyboard(NULL, kbdBuffer, sizeof(kbdBuffer), 126)) {
+    if (editTextBufferWithKeyboard(kbdBuffer, sizeof(kbdBuffer), 126)) {
         int len = strlen(kbdBuffer);
         for (int i = 0; i < len && i < 126; i++) {
             about_input_string[i] = kbdBuffer[i];
@@ -3875,7 +3875,7 @@ static int about_process_input(int input)
         strncpy(kbdBuffer, about_input_string, about_input_index);
         kbdBuffer[about_input_index] = '\0';
 
-        if (showTextKeyboard(kbdBuffer, kbdBuffer, sizeof(kbdBuffer), 126)) {
+        if (editTextBufferWithKeyboard(kbdBuffer, sizeof(kbdBuffer), 126)) {
             int len = strlen(kbdBuffer);
             for (int i = 0; i < len && i < 126; i++) {
                 about_input_string[i] = kbdBuffer[i];

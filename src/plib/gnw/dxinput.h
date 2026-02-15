@@ -38,6 +38,7 @@ void handleMouseEvent(SDL_Event* event);
 #ifdef __SWITCH__
 void handleLeftStickMovement(MouseData* mouseState);
 void handleControllerButtons(MouseData* mouseState);
+void dxinput_reinitialize_switch_pad();
 #endif
 
 } // namespace fallout

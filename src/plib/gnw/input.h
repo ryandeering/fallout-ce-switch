@@ -86,6 +86,7 @@ SDL_Scancode mapCharToScancode(char ch);
 void simulateKeyEvent(SDL_Scancode scancode, char ch);
 int showNumericKeyboard(int currentValue, int maxValue);
 bool showTextKeyboard(const char* initialText, char* outBuffer, int outBufferSize, int maxLen);
+bool editTextBufferWithKeyboard(char* textBuffer, int textBufferSize, int maxLen);
 
 extern bool gInTextInputDialog;
 
