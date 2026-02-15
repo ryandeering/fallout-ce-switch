@@ -1554,7 +1554,6 @@ int scr_game_load2(DB_FILE* stream)
     int* temp_vars;
     unsigned char temp_water_movie_play_flag;
 
-    // Apply offset correction if PC save had different num_game_global_vars
     long offset_correction = getGvarOffsetCorrection();
     if (offset_correction != 0) {
         long currentPos = db_ftell(stream);

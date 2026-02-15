@@ -1271,15 +1271,12 @@ void beginTextInput() {
     while (!textInputQueue.empty()) {
         textInputQueue.pop();
     }
-    // Don't call SDL_StartTextInput on Switch - we use native swkbd instead
 #else
     SDL_StartTextInput();
 #endif
 }
 
 #ifdef __SWITCH__
-// Show Switch software keyboard and get numeric input directly
-// Returns the entered number, or -1 if cancelled
 int showNumericKeyboard(int currentValue, int maxValue) {
     SwkbdConfig kbd;
     swkbdCreate(&kbd, 0);
@@ -1305,15 +1302,25 @@ int showNumericKeyboard(int currentValue, int maxValue) {
     return -1;  // Cancelled
 }
 
-// Show Switch software keyboard for text input
-// Copies result into outBuffer (up to maxLen chars), returns true if OK pressed
-bool showTextKeyboard(const char* initialText, char* outBuffer, int maxLen) {
+bool showTextKeyboard(const char* initialText, char* outBuffer, int outBufferSize, int maxLen) {
+    if (outBuffer == NULL || outBufferSize <= 0 || maxLen <= 0) {
+        return false;
+    }
+
+    int keyboardMaxLen = maxLen;
+    if (keyboardMaxLen > outBufferSize - 1) {
+        keyboardMaxLen = outBufferSize - 1;
+    }
+    if (keyboardMaxLen > 255) {
+        keyboardMaxLen = 255;
+    }
+
     SwkbdConfig kbd;
     swkbdCreate(&kbd, 0);
     swkbdConfigMakePresetDefault(&kbd);
     swkbdConfigSetType(&kbd, SwkbdType_Normal);
     swkbdConfigSetBlurBackground(&kbd, true);
-    swkbdConfigSetStringLenMax(&kbd, maxLen);
+    swkbdConfigSetStringLenMax(&kbd, keyboardMaxLen);
 
     if (initialText != NULL && initialText[0] != '\0') {
         swkbdConfigSetInitialText(&kbd, initialText);
@@ -1324,8 +1331,12 @@ bool showTextKeyboard(const char* initialText, char* outBuffer, int maxLen) {
     swkbdClose(&kbd);
 
     if (R_SUCCEEDED(rc)) {
-        strncpy(outBuffer, resultStr, maxLen);
-        outBuffer[maxLen] = '\0';
+        size_t copyLen = strlen(resultStr);
+        if (copyLen > static_cast<size_t>(keyboardMaxLen)) {
+            copyLen = static_cast<size_t>(keyboardMaxLen);
+        }
+        memcpy(outBuffer, resultStr, copyLen);
+        outBuffer[copyLen] = '\0';
         return true;
     }
     return false;  // Cancelled
@@ -1450,8 +1461,6 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
     bool diagnosticsHudComboPressed = false;
     bool diagnosticsLogComboPressed = false;
 
-    // L+R+RStick -> F11 (HUD toggle), L+R+LStick -> Ctrl+F11 (log toggle).
-    // We inject keyboard keys so diagnostics handling stays centralized.
     if (!textInputActive) {
         diagnosticsHudComboPressed = (kDown & HidNpadButton_StickR) != 0
             && (kHeld & HidNpadButton_L) != 0
@@ -1469,7 +1478,6 @@ void handleSwitchControllerEvents(uint64_t kDown, uint64_t kUp, uint64_t kHeld) 
         }
     }
 
-    // Map Nintendo Switch buttons to game actions
     if (kDown & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, true);
     if (kUp & HidNpadButton_A) handleControllerButtonEvent(HidControllerButtons::KEY_A, false);
 
@@ -1533,10 +1541,9 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
             return;
         }
 
-        // Dialogs with custom KEY_1 behavior handle keyboard themselves.
         if (!gInTextInputDialog) {
             char keyboardBuffer[256] = {0};
-            if (showTextKeyboard(NULL, keyboardBuffer, 254)) {
+            if (showTextKeyboard(NULL, keyboardBuffer, sizeof(keyboardBuffer), 254)) {
                 injectTextAsKeyEvents(keyboardBuffer);
             }
             return;
@@ -1547,7 +1554,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
 
     switch (button) {
     case HidControllerButtons::KEY_A:
-        // start combat - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_A;
             keyboardData.down = 1;
@@ -1557,13 +1563,11 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_B:
-        // end turn - allow hold for text scrolling
         keyboardData.key = SDL_SCANCODE_SPACE;
         keyboardData.down = pressed ? 1 : 0;
         GNW95_process_key(&keyboardData);
         break;
     case HidControllerButtons::KEY_X:
-        // Skilldex - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_S;
             keyboardData.down = 1;
@@ -1573,7 +1577,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_Y:
-        // Inventory - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_I;
             keyboardData.down = 1;
@@ -1583,7 +1586,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_PLUS:
-        // Pause menu - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_ESCAPE;
             keyboardData.down = 1;
@@ -1593,7 +1595,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_MINUS:
-        // Character menu - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_C;
             keyboardData.down = 1;
@@ -1603,11 +1604,9 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_R:
-        // Toggle cursor speedup - needs hold behavior
         cursorSpeedup = pressed ? 2.0f : 1.0f;
         break;
     case HidControllerButtons::KEY_L:
-        // Toggle active items - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_B;
             keyboardData.down = 1;
@@ -1617,7 +1616,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_LSTICK:
-        // Sneak mode / keyboard trigger - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_1;
             keyboardData.down = 1;
@@ -1627,7 +1625,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_RSTICK:
-        // End combat - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_KP_ENTER;
             keyboardData.down = 1;
@@ -1637,7 +1634,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_DPAD_UP:
-        // Pipboy 2000 - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_P;
             keyboardData.down = 1;
@@ -1647,7 +1643,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_DPAD_DOWN:
-        // Center on player character - single press only
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_HOME;
             keyboardData.down = 1;
@@ -1657,7 +1652,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_DPAD_LEFT:
-        // Quick save - send down+up immediately to avoid key repeat
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_F6;
             keyboardData.down = 1;
@@ -1667,7 +1661,6 @@ void handleControllerButtonEvent(HidControllerButtons button, bool pressed) {
         }
         break;
     case HidControllerButtons::KEY_DPAD_RIGHT:
-        // Quick load - send down+up immediately to avoid key repeat
         if (pressed) {
             keyboardData.key = SDL_SCANCODE_F7;
             keyboardData.down = 1;

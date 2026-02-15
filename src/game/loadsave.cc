@@ -188,8 +188,6 @@ static char* patches = NULL;
 // 0x505974
 static char emgpath[] = "\\FALLOUT\\CD\\DATA\\SAVEGAME";
 
-// Offset correction for saves with different num_game_global_vars.
-// Detected in SlotMap2Game and applied in scr_game_load2.
 static long gvar_offset_correction = 0;
 
 // 0x505990
@@ -1598,7 +1596,6 @@ int isLoadingGame()
 // 0x46FCCC
 static int LoadSlot(int slot)
 {
-    // Reset offset correction before loading new save
     gvar_offset_correction = 0;
 
     gmouse_set_cursor(MOUSE_CURSOR_WAIT_PLANET);
@@ -2410,8 +2407,6 @@ static int GameMap2Slot(DB_FILE* stream)
     return 0;
 }
 
-// Helper function to check if position looks like start of file list
-// Returns the fileNameListLength if valid, -1 otherwise
 static bool isSavFileName(const char* fileName, int nameLen)
 {
     if (nameLen < 5) {
@@ -2482,8 +2477,6 @@ static int SlotMap2Game(DB_FILE* stream)
 
     long foundPos = -1;
 
-    // Validate the expected location first. If invalid, scan backwards to find
-    // the real list position (compat with saves that have gvar count drift).
     if (checkFileListPosition(stream, startPos) > 0) {
         foundPos = startPos;
     } else {
@@ -2523,7 +2516,6 @@ static int SlotMap2Game(DB_FILE* stream)
     compat_remove(str0);
 
 #ifdef __SWITCH__
-    // Batch file copy optimization: read all files into memory first, then write
     struct FileData {
         char srcPath[COMPAT_MAX_PATH];
         char dstPath[COMPAT_MAX_PATH];
@@ -2539,7 +2531,6 @@ static int SlotMap2Game(DB_FILE* stream)
 
     int fileCount = 0;
 
-    // Phase 1: Read all files into memory
     for (int index = 0; index < fileNameListLength; index++) {
         char fileName[COMPAT_MAX_PATH];
         if (mygets(fileName, stream) == -1) {
@@ -2600,7 +2591,6 @@ static int SlotMap2Game(DB_FILE* stream)
         fileCount++;
     }
 
-    // Add automap file
     const char* automapFileName = strmfe(str1, "AUTOMAP.DB", "SAV");
     snprintf(files[fileCount].srcPath, COMPAT_MAX_PATH, "%s/%s/SLOT%.2d/%s",
              patches, "SAVEGAME", slot_cursor + 1, automapFileName);
@@ -2638,7 +2628,6 @@ static int SlotMap2Game(DB_FILE* stream)
         fclose(f);
     }
 
-    // Phase 2: Write all files to destination
     int writeErrors = 0;
     for (int i = 0; i < fileCount; i++) {
         FILE* out = fopen(files[i].dstPath, "wb");
@@ -2651,12 +2640,10 @@ static int SlotMap2Game(DB_FILE* stream)
         if (bytesWritten != files[i].size) {
             writeErrors++;
         } else {
-            // Keep db_fopen(hash-enabled) reads working after raw stdio writes.
             db_add_hash_entry(files[i].fileName, '/');
         }
     }
 
-    // Phase 3: Free memory
     for (int i = 0; i < fileCount; i++) {
         if (files[i].data) mem_free(files[i].data);
     }

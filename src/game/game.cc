@@ -159,7 +159,6 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     video_options.width /= video_options.scale;
     video_options.height /= video_options.scale;
 
-    // Create fallout1_nx.ini with default values if it doesn't exist
     FILE* iniCheck = compat_fopen("fallout1_nx.ini", "r");
     if (iniCheck == NULL) {
         FILE* iniFile = compat_fopen("fallout1_nx.ini", "w");
@@ -432,7 +431,6 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
     diagnostics_mark_load_phase("init_options_menu");
 
 #ifdef __SWITCH__
-    // Pre-cache common art assets to reduce load times during gameplay
     art_precache_common();
     debug_printf(">art_precache_common\n");
     diagnostics_mark_load_phase("art_precache_common");
