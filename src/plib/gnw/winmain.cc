@@ -75,8 +75,13 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
     const char* primaryPath = "sdmc:/switch/fallout1/";
+    const char* fallbackPath = "sdmc:/fallout1/";
 
-    chdir(primaryPath);
+    if (access("sdmc:/switch/fallout1/master.dat", F_OK) == 0) {
+        chdir(primaryPath);
+    } else {
+        chdir(fallbackPath);
+    }
 #endif
 
     SDL_ShowCursor(SDL_DISABLE);
