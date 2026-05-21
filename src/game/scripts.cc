@@ -1,5 +1,6 @@
 #include "game/scripts.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1543,39 +1544,50 @@ int scr_game_load(DB_FILE* stream)
     return 0;
 }
 
-// NOTE: For unknown reason save game files contains two identical sets of game
-// global variables (saved with [scr_game_save]). The first set is
-// read with [scr_game_load], the second set is simply thrown away
-// using this function.
+// Save game files contain two identical sets of game globals (block 1 via
+// [scr_game_load], block 2 via this function). When the saved globals count N
+// differs from the current build's [num_game_global_vars] M, [SlotMap2Game]
+// scans bidirectionally for the file list and records a signed
+// [gvar_offset_correction] (positive when the file list lay backward, i.e.
+// N < M; negative when it lay forward, i.e. N > M). N is recovered as
+// M - correction / sizeof(int). We then advance the stream by exactly the
+// on-disk block 2 length (4*N + 1) so subsequent handlers stay aligned, and
+// repair [game_global_vars] from block 2:
+//   - N <= M: read N globals into the live array, zero-fill [N..M).
+//   - N >  M: read M globals into the live array, skip the extra (N-M) ints.
 //
 // 0x4935D4
 int scr_game_load2(DB_FILE* stream)
 {
-    int* temp_vars;
-    unsigned char temp_water_movie_play_flag;
-
-    long offset_correction = getGvarOffsetCorrection();
-    if (offset_correction != 0) {
-        long currentPos = db_ftell(stream);
-        db_fseek(stream, currentPos - offset_correction, SEEK_SET);
-    }
-
-    temp_vars = (int*)mem_malloc(sizeof(*temp_vars) * num_game_global_vars);
-    if (temp_vars == NULL) {
+    long offsetCorrection = getGvarOffsetCorrection();
+    if (offsetCorrection % static_cast<long>(sizeof(int)) != 0) {
         return -1;
     }
 
-    if (db_freadIntCount(stream, temp_vars, num_game_global_vars) == -1) {
-        // FIXME: Leaks vars.
+    long savedGlobalsLong = static_cast<long>(num_game_global_vars) - offsetCorrection / static_cast<long>(sizeof(int));
+    if (savedGlobalsLong < 0 || savedGlobalsLong > INT_MAX) {
         return -1;
     }
 
-    if (db_freadByte(stream, &temp_water_movie_play_flag) == -1) {
-        // FIXME: Leaks vars.
-        return -1;
+    int savedGlobals = static_cast<int>(savedGlobalsLong);
+    int globalsToRead = savedGlobals < num_game_global_vars ? savedGlobals : num_game_global_vars;
+
+    if (globalsToRead > 0) {
+        if (db_freadIntCount(stream, game_global_vars, globalsToRead) == -1) return -1;
     }
 
-    mem_free(temp_vars);
+    if (savedGlobals < num_game_global_vars) {
+        memset(game_global_vars + savedGlobals, 0,
+            sizeof(*game_global_vars) * (num_game_global_vars - savedGlobals));
+    } else if (savedGlobals > num_game_global_vars) {
+        int extra = savedGlobals - num_game_global_vars;
+        int discard;
+        for (int i = 0; i < extra; i++) {
+            if (db_freadInt(stream, &discard) == -1) return -1;
+        }
+    }
+
+    if (db_freadByte(stream, &water_movie_play_flag) == -1) return -1;
 
     return 0;
 }

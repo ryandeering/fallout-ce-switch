@@ -2528,8 +2528,12 @@ static int SlotMap2Game(DB_FILE* stream)
     if (checkFileListPosition(stream, startPos) > 0) {
         foundPos = startPos;
     } else {
-        long maxScanOffset = std::min<long>(startPos, 32768);
-        for (long offset = 4; offset <= maxScanOffset; offset += 4) {
+        // Backward scan recovers the N < M case (scr_game_load over-read into
+        // the file list section); forward scan recovers the N > M case
+        // (scr_game_load under-read, file list lies ahead of startPos).
+        long maxScanOffset = 32768;
+        long maxBackward = std::min<long>(startPos, maxScanOffset);
+        for (long offset = 4; offset <= maxBackward; offset += 4) {
             long testPos = startPos - offset;
             if (testPos < 0) break;
 
@@ -2537,6 +2541,17 @@ static int SlotMap2Game(DB_FILE* stream)
             if (result > 0) {
                 foundPos = testPos;
                 break;
+            }
+        }
+
+        if (foundPos < 0) {
+            for (long offset = 4; offset <= maxScanOffset; offset += 4) {
+                long testPos = startPos + offset;
+                int result = checkFileListPosition(stream, testPos);
+                if (result > 0) {
+                    foundPos = testPos;
+                    break;
+                }
             }
         }
     }
